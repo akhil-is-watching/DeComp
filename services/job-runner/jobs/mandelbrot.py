@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import math
 import struct
 import sys
 import time
@@ -58,7 +59,9 @@ def run(params: dict[str, Any]) -> dict[str, Any]:
         if i % 32 == 31:
             mx.eval(z_re, z_im, alive, counts)  # bound the lazy graph
 
-    t = counts / max_iter
+    # Log-scale escape counts: most pixels escape within a few iterations, so a linear scale over
+    # max_iter leaves nearly everything outside the set black at high iteration counts.
+    t = mx.log(counts + 1) / math.log(max_iter + 1)
     rgb = mx.stack([9 * (1 - t) * t**3, 15 * (1 - t) ** 2 * t**2, 8.5 * (1 - t) ** 3 * t], axis=-1)
     rgb = mx.where(alive[..., None], 0.0, mx.clip(rgb, 0.0, 1.0))
     pixels = (rgb * 255).astype(mx.uint8)
