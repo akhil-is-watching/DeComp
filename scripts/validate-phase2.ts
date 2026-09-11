@@ -9,22 +9,19 @@ import { join } from "node:path";
 import { readRegistry } from "@decomp/hcs-registry";
 import { accountFromEnv, hederaNetwork, requireEnv } from "@decomp/hedera-x402";
 import { discoverAndRunJob, discoverProviders } from "@decomp/agent";
+import { allPaymentsSettled, createGate, errorMessage } from "./lib/gate";
 import { ROOT, ensureServices, providerService, runnerService, waitForHealthy } from "./lib/services";
 
 const topicId = requireEnv("REGISTRY_TOPIC_ID");
 const network = hederaNetwork();
+// Prices are tinybars per GPU-second, billed in 5s ticks.
 const PROVIDERS = [
   { name: "PROVIDER_1", port: 4021, offers: "benchmark:2000000" },
   { name: "PROVIDER_2", port: 4022, offers: "benchmark:1600000,mandelbrot:4000000" },
   { name: "PROVIDER_3", port: 4023, offers: "mandelbrot:3000000" },
 ].map(p => ({ ...p, account: requireEnv(`${p.name}_ACCOUNT_ID`) }));
 
-let failures = 0;
-function record(name: string, ok: boolean, detail: string) {
-  if (!ok) failures++;
-  console.log(`${ok ? "PASS" : "FAIL"}  ${name} — ${detail}`);
-}
-const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
+const gate = createGate(2);
 const agentLog = (tag: string) => (line: string) => console.log(`   [${tag}] ${line}`);
 
 const stops: Array<() => void> = [];
@@ -62,7 +59,7 @@ try {
     if (seenAfterMs.size < PROVIDERS.length) await Bun.sleep(1_000);
   }
   const slowestS = Math.max(0, ...seenAfterMs.values()) / 1000;
-  record(
+  gate.record(
     "all 3 providers publish a registration on boot, visible on the mirror node",
     seenAfterMs.size === PROVIDERS.length && slowestS <= 15,
     `${seenAfterMs.size}/3 visible, slowest ${slowestS.toFixed(1)}s after the providers came up`,
@@ -76,12 +73,12 @@ try {
       .map(c => `${c.providerId}=${c.pricePerSecTinybars}`)
       .sort()
       .join(",");
-    record(`discovery for ${jobType} returns exactly the providers offering it`, found === expected, found || "none");
+    gate.record(`discovery for ${jobType} returns exactly the providers offering it`, found === expected, found || "none");
   }
 
   const unit = await $`bun test apps/agent/test packages/hcs-registry/test`.cwd(ROOT).quiet().nothrow();
   const output = unit.stdout.toString() + unit.stderr.toString();
-  record(
+  gate.record(
     "router selects the cheapest eligible provider (unit tests with a mocked registry)",
     unit.exitCode === 0,
     output.match(/\d+ pass[\s\S]*?\d+ fail/)?.[0].replace(/\s+/g, " ") ?? `exit ${unit.exitCode}`,
@@ -98,20 +95,19 @@ try {
     });
     const png = (summary.result as { png_base64?: string } | undefined)?.png_base64;
     if (png) writeFileSync(join(ROOT, "logs", "phase2-mandelbrot.png"), Buffer.from(png, "base64"));
-    const settled = summary.mirror?.every(m => m.result === "SUCCESS" && BigInt(m.creditedTinybars) === BigInt(summary.amountTinybars));
-    record(
+    gate.record(
       "a live job routes to the cheapest eligible provider and settles",
-      chosen.providerId === "PROVIDER_3" && summary.status === "succeeded" && Boolean(settled),
-      `mandelbrot → ${chosen.providerId} for ${summary.amountTinybars} tinybars, ${summary.status}` +
+      chosen.providerId === "PROVIDER_3" && summary.status === "succeeded" && allPaymentsSettled(summary),
+      `mandelbrot → ${chosen.providerId} for ${summary.totalTinybars} tinybars, ${summary.status}` +
         (png ? ", image at logs/phase2-mandelbrot.png" : ""),
     );
   } catch (error) {
-    record("a live job routes to the cheapest eligible provider and settles", false, message(error));
+    gate.record("a live job routes to the cheapest eligible provider and settles", false, errorMessage(error));
   }
 
   const cheapest = processes.get("PROVIDER_2");
   if (!cheapest) {
-    record("agent falls back when the cheapest provider is down", false, "PROVIDER_2 was not started by this run");
+    gate.record("agent falls back when the cheapest provider is down", false, "PROVIDER_2 was not started by this run");
   } else {
     cheapest.kill();
     await cheapest.exited;
@@ -123,22 +119,20 @@ try {
         account: agent,
         log: agentLog("fallback"),
       });
-      const settled = summary.mirror?.every(m => m.result === "SUCCESS" && BigInt(m.creditedTinybars) === BigInt(summary.amountTinybars));
       const skippedIds = skipped.map(s => s.candidate.providerId).join(", ");
-      record(
+      gate.record(
         "with the cheapest benchmark provider killed, the agent falls back to the next-cheapest",
-        skippedIds === "PROVIDER_2" && chosen.providerId === "PROVIDER_1" && summary.status === "succeeded" && Boolean(settled),
-        `skipped ${skippedIds || "none"}, paid ${chosen.providerId}, ${summary.status}, tx ${summary.transactionIds.join(", ")}`,
+        skippedIds === "PROVIDER_2" && chosen.providerId === "PROVIDER_1" && summary.status === "succeeded" && allPaymentsSettled(summary),
+        `skipped ${skippedIds || "none"}, paid ${chosen.providerId}, ${summary.status}, ` +
+          `tx ${summary.payments.map(p => p.transactionId).join(", ")}`,
       );
     } catch (error) {
-      record("agent falls back when the cheapest provider is down", false, message(error));
+      gate.record("agent falls back when the cheapest provider is down", false, errorMessage(error));
     }
   }
 } catch (error) {
-  record("phase 2 setup", false, message(error));
+  gate.record("phase 2 setup", false, errorMessage(error));
 } finally {
   for (const stop of stops) stop();
 }
-
-console.log(failures ? `\n${failures} check(s) failed — fix before Phase 3.` : "\nPhase 2 gate passed.");
-process.exit(failures ? 1 : 0);
+gate.finish();

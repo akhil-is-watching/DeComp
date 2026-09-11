@@ -1,8 +1,9 @@
 /**
- * Agent CLI: pay for one GPU job and print the result.
+ * Agent CLI: pay for one metered GPU job and print the result.
  *
- *   bun run agent -- --job benchmark --params '{"duration_s": 3}'    # route via the HCS registry
+ *   bun run agent -- --job mandelbrot --params '{"width": 1024}'       # route via the HCS registry
  *   bun run agent -- --provider http://127.0.0.1:4021 --job benchmark  # use one provider directly
+ *   bun run agent -- --job benchmark --budget-hbar 0.2                  # stop paying after 0.2 ℏ
  */
 import { parseArgs } from "node:util";
 import { accountFromEnv, hbarToTinybars } from "@decomp/hedera-x402";
@@ -15,6 +16,8 @@ const { values } = parseArgs({
     topic: { type: "string" },
     job: { type: "string", default: "benchmark" },
     params: { type: "string", default: "{}" },
+    "budget-hbar": { type: "string" },
+    // Per-payment cap when using --provider; routed jobs are capped at the registered tick price.
     "max-hbar": { type: "string", default: "1" },
     "skip-mirror": { type: "boolean", default: false },
     json: { type: "boolean", default: false },
@@ -26,7 +29,7 @@ try {
     jobType: values.job,
     params: JSON.parse(values.params),
     account: accountFromEnv("AGENT"),
-    maxTinybarsPerPayment: hbarToTinybars(Number(values["max-hbar"])),
+    maxBudgetTinybars: values["budget-hbar"] ? hbarToTinybars(Number(values["budget-hbar"])) : undefined,
     confirmOnMirror: !values["skip-mirror"],
     log: values.json ? () => {} : console.log,
   };
@@ -34,7 +37,11 @@ try {
 
   let summary: JobSummary;
   if (values.provider || !topicId) {
-    summary = await runJob({ ...common, providerUrl: values.provider ?? process.env.PROVIDER_URL ?? "http://127.0.0.1:4021" });
+    summary = await runJob({
+      ...common,
+      providerUrl: values.provider ?? process.env.PROVIDER_URL ?? "http://127.0.0.1:4021",
+      maxTinybarsPerPayment: hbarToTinybars(Number(values["max-hbar"])),
+    });
   } else {
     ({ summary } = await discoverAndRunJob({ ...common, topicId }));
   }
