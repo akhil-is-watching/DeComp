@@ -7,6 +7,7 @@
     "apps/*"
   ],
   "scripts": {
+    "dev": "bun scripts/dev.ts",
     "check:phase0": "bun scripts/check-phase0.ts",
     "setup:hedera": "bun scripts/setup-hedera-accounts.ts",
     "setup:topics": "bun scripts/create-hcs-topics.ts",
