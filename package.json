@@ -15,6 +15,8 @@
     "dev:provider": "bun apps/provider/src/index.ts",
     "agent": "bun apps/agent/src/index.ts",
     "validate:phase1": "bun scripts/validate-phase1.ts",
+    "validate:phase2": "bun scripts/validate-phase2.ts",
+    "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
