@@ -1,0 +1,28 @@
+{
+  "name": "decomp",
+  "type": "module",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "check:phase0": "bun scripts/check-phase0.ts",
+    "setup:hedera": "bun scripts/setup-hedera-accounts.ts",
+    "setup:runner": "cd services/job-runner && uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -r requirements.txt",
+    "dev:runner": "cd services/job-runner && .venv/bin/python -m uvicorn app:app --host 127.0.0.1 --port 8100",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@hiero-ledger/sdk": "2.85.0",
+    "@x402/core": "2.25.0",
+    "@x402/fetch": "2.25.0",
+    "@x402/hedera": "2.25.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}

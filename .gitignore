@@ -1,0 +1,50 @@
+# dependencies (bun install)
+node_modules
+
+# output
+out
+dist
+*.tgz
+
+# code coverage
+coverage
+*.lcov
+
+# logs
+logs
+_.log
+report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
+
+# dotenv environment variable files (hold Hedera private keys)
+.env
+.env.*
+!.env.example
+
+# python
+.venv/
+__pycache__/
+*.pyc
+
+# model weights and generated job outputs are fetched/produced at runtime
+*.safetensors
+*.onnx
+*.mlpackage
+*.ckpt
+*.pth
+*.gguf
+services/job-runner/outputs/
+
+# machine-specific agent permissions
+.claude/settings.json
+.claude/settings.local.json
+
+# caches
+.eslintcache
+.cache
+*.tsbuildinfo
+
+# IntelliJ based IDEs
+.idea
+
+# Finder (MacOS) folder config
+.DS_Store
