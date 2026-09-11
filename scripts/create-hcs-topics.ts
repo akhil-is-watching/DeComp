@@ -3,7 +3,10 @@ import { TopicCreateTransaction } from "@hiero-ledger/sdk";
 import { mirrorGet, networkConfig, parsePrivateKey, requireEnv, sdkClient } from "@decomp/hedera-x402";
 import { upsertEnv } from "./lib/env-file";
 
-const topics = [{ envVar: "REGISTRY_TOPIC_ID", memo: "decomp provider registry v1" }];
+const topics = [
+  { envVar: "REGISTRY_TOPIC_ID", memo: "decomp provider registry v1" },
+  { envVar: "AUDIT_TOPIC_ID", memo: "decomp job audit v1" },
+];
 
 const { hashscan } = networkConfig();
 const operator = { accountId: requireEnv("OPERATOR_ID"), privateKey: parsePrivateKey(requireEnv("OPERATOR_KEY")) };
@@ -20,8 +23,9 @@ try {
       }
       console.log(`${envVar}=${existing} is not on the mirror node; creating a new topic`);
     }
-    // No submit key: anyone may post, and readers only trust a registration paid for by the
-    // account it advertises. The admin key lets the operator update or delete the topic.
+    // No submit key: anyone may post, and readers attribute each message to the account that paid
+    // for it (registrations must match their advertised account; audits their agent). The admin
+    // key lets the operator update or delete the topic.
     const response = await new TopicCreateTransaction()
       .setTopicMemo(memo)
       .setAdminKey(operator.privateKey.publicKey)
