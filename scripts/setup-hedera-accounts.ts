@@ -4,23 +4,12 @@
  * are checked and associated, never recreated. Keys are written to .env as each account is
  * created, so a failure partway through doesn't strand funded accounts.
  */
-import {
-  AccountBalanceQuery,
-  AccountCreateTransaction,
-  AccountId,
-  Hbar,
-  PrivateKey,
-  Status,
-  StatusError,
-  ReceiptStatusError,
-  TokenAssociateTransaction,
-  TokenId,
-} from "@hiero-ledger/sdk";
+import { AccountBalanceQuery, AccountCreateTransaction, Hbar, PrivateKey } from "@hiero-ledger/sdk";
 import {
   accountFromEnv,
+  associateTokens,
   formatTinybars,
   hederaNetwork,
-  isTokenAssociated,
   parsePrivateKey,
   requireEnv,
   sdkClient,
@@ -60,34 +49,6 @@ async function createAccount(prefix: string, initialHbar: number): Promise<Accou
   return { accountId, privateKey };
 }
 
-async function associateTokens(prefix: string, account: AccountCredentials, isNew: boolean): Promise<void> {
-  const pending: string[] = [];
-  for (const tokenId of tokenIds) {
-    // A just-created account can't have associations yet, and the mirror node lags consensus.
-    if (isNew || !(await isTokenAssociated(account.accountId, tokenId, network))) {
-      pending.push(tokenId);
-    }
-  }
-  if (pending.length === 0) return;
-
-  try {
-    const tx = await new TokenAssociateTransaction()
-      .setAccountId(AccountId.fromString(account.accountId))
-      .setTokenIds(pending.map(id => TokenId.fromString(id)))
-      .freezeWith(client)
-      .sign(account.privateKey);
-    await (await tx.execute(client)).getReceipt(client);
-    console.log(`  associated ${prefix} with ${pending.join(", ")}`);
-  } catch (error) {
-    const status = error instanceof ReceiptStatusError || error instanceof StatusError ? error.status : undefined;
-    if (status === Status.TokenAlreadyAssociatedToAccount) {
-      console.log(`  ${prefix} already associated with ${pending.join(", ")}`);
-      return;
-    }
-    throw error;
-  }
-}
-
 console.log(`Operator ${operator.accountId} on ${network}`);
 const summary: { role: string; accountId: string; balance: string }[] = [];
 
@@ -96,7 +57,9 @@ try {
     const hasCredentials = Boolean(process.env[`${prefix}_ACCOUNT_ID`] && process.env[`${prefix}_PRIVATE_KEY`]);
     const account = hasCredentials ? accountFromEnv(prefix) : await createAccount(prefix, initialHbar);
     if (hasCredentials) console.log(`  using existing ${prefix} ${account.accountId}`);
-    await associateTokens(prefix, account, !hasCredentials);
+
+    const associated = await associateTokens(client, account, tokenIds, { knownUnassociated: !hasCredentials });
+    if (associated.length > 0) console.log(`  associated ${prefix} with ${associated.join(", ")}`);
 
     const balance = await new AccountBalanceQuery().setAccountId(account.accountId).execute(client);
     summary.push({ role: prefix, accountId: account.accountId, balance: formatTinybars(balance.hbars.toTinybars().toString()) });

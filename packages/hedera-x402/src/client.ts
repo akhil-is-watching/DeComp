@@ -7,7 +7,7 @@ import { x402Client, x402HTTPClient } from "@x402/core/client";
 import type { PaymentPayload, PaymentRequired, PaymentRequirements, SettleResponse } from "@x402/core/types";
 import { createClientHederaSigner } from "@x402/hedera";
 import { ExactHederaScheme } from "@x402/hedera/exact/client";
-import { HBAR_ASSET, hederaNetwork, type HederaNetwork } from "./config";
+import { hederaNetwork, type HederaNetwork } from "./config";
 import type { AccountCredentials } from "./keys";
 
 export type PaymentEvent =
@@ -16,13 +16,20 @@ export type PaymentEvent =
   | { type: "payment_settled"; settlement: SettleResponse }
   | { type: "payment_rejected"; status: number; body: unknown };
 
+export type AssetCap = {
+  /** "0.0.0" for HBAR (amounts in tinybars) or an HTS token id (amounts in the token's smallest unit). */
+  asset: string;
+  /** Largest single payment the client will sign in this asset. */
+  maxAmountPerPayment: bigint;
+};
+
 export type PayingClientOptions = {
   account: AccountCredentials;
   network?: HederaNetwork;
-  /** Per-payment HBAR cap in tinybars. The x402 client refuses to sign anything larger. */
-  maxTinybarsPerPayment: bigint;
-  /** HTS tokens the agent may also pay with, each capped in the token's smallest unit. */
-  extraAssets?: { asset: string; maxAmountPerPayment: string }[];
+  /** Assets the client may pay with. The x402 client refuses anything else before signing. */
+  allowedAssets: AssetCap[];
+  /** When a 402 offers several assets, pay with this one; otherwise the first allowed asset offered. */
+  preferredAsset?: string;
   onEvent?: (event: PaymentEvent) => void;
 };
 
@@ -51,14 +58,18 @@ export function paymentTransactionId(payload: PaymentPayload): string {
 export function createPayingClient(options: PayingClientOptions) {
   const network = options.network ?? hederaNetwork();
   const signer = createClientHederaSigner(options.account.accountId, options.account.privateKey, { network });
+  const allowed = new Set(options.allowedAssets.map(a => a.asset));
   const client = x402Client.fromConfig({
     schemes: [{ network, client: new ExactHederaScheme(signer) }],
     spendControls: {
-      allowedAssets: [
-        { network, asset: HBAR_ASSET, maxAmountPerPayment: options.maxTinybarsPerPayment.toString() },
-        ...(options.extraAssets ?? []).map(entry => ({ network, ...entry })),
-      ],
+      allowedAssets: options.allowedAssets.map(({ asset, maxAmountPerPayment }) => ({
+        network,
+        asset,
+        maxAmountPerPayment: maxAmountPerPayment.toString(),
+      })),
     },
+    paymentRequirementsSelector: (_x402Version, accepts) =>
+      accepts.find(r => r.asset === options.preferredAsset) ?? accepts.find(r => allowed.has(r.asset)) ?? accepts[0]!,
   });
   const http = new x402HTTPClient(client);
   const emit = options.onEvent ?? (() => {});

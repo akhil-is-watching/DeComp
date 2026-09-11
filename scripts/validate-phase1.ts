@@ -5,6 +5,7 @@
  */
 import { decodePaymentRequiredHeader } from "@x402/core/http";
 import {
+  HBAR_ASSET,
   accountFromEnv,
   createFacilitatorClient,
   createPayingClient,
@@ -41,7 +42,10 @@ try {
 
   if (paymentRequired) {
     try {
-      const agent = createPayingClient({ account: accountFromEnv("AGENT"), maxTinybarsPerPayment });
+      const agent = createPayingClient({
+        account: accountFromEnv("AGENT"),
+        allowedAssets: [{ asset: HBAR_ASSET, maxAmountPerPayment: maxTinybarsPerPayment }],
+      });
       const payload = await agent.createPayload(paymentRequired);
       const verify = await createFacilitatorClient().verify(payload, payload.accepted);
       gate.record(

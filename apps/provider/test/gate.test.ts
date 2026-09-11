@@ -72,7 +72,7 @@ test("malformed payment header is treated as unpaid", async () => {
 test("payment signed with the wrong key is rejected before any job starts", async () => {
   const impostor = createPayingClient({
     account: { accountId: "0.0.3", privateKey: PrivateKey.generateECDSA() },
-    maxTinybarsPerPayment: hbarToTinybars(1),
+    allowedAssets: [{ asset: "0.0.0", maxAmountPerPayment: hbarToTinybars(1) }],
   });
   const { response, body, settlement } = await impostor.request(`${BASE}/jobs`, {
     method: "POST",

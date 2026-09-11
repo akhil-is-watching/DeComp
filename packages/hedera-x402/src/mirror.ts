@@ -1,4 +1,4 @@
-import { networkConfig, type HederaNetwork } from "./config";
+import { HBAR_ASSET, networkConfig, type HederaNetwork } from "./config";
 
 export async function mirrorGet<T>(path: string, network?: HederaNetwork): Promise<T> {
   const url = `${networkConfig(network).mirrorNodeUrl}${path}`;
@@ -14,12 +14,18 @@ export async function getHbarBalance(accountId: string, network?: HederaNetwork)
   return BigInt(account.balance.balance);
 }
 
-export async function isTokenAssociated(accountId: string, tokenId: string, network?: HederaNetwork): Promise<boolean> {
-  const res = await mirrorGet<{ tokens: { token_id: string }[] }>(
+/** The account's balance of an HTS token in smallest units, or null when it isn't associated. */
+export async function getTokenBalance(accountId: string, tokenId: string, network?: HederaNetwork): Promise<bigint | null> {
+  const res = await mirrorGet<{ tokens: { token_id: string; balance: number }[] }>(
     `/api/v1/accounts/${accountId}/tokens?token.id=${tokenId}`,
     network,
   );
-  return res.tokens.some(t => t.token_id === tokenId);
+  const row = res.tokens.find(t => t.token_id === tokenId);
+  return row ? BigInt(row.balance) : null;
+}
+
+export async function isTokenAssociated(accountId: string, tokenId: string, network?: HederaNetwork): Promise<boolean> {
+  return (await getTokenBalance(accountId, tokenId, network)) !== null;
 }
 
 /** SDK transaction ids look like `0.0.123@1700000000.000000001`; the mirror node wants `0.0.123-1700000000-000000001`. */
@@ -38,8 +44,14 @@ export type MirrorTransaction = {
   result: string;
   name: string;
   transfers: MirrorTransfer[];
-  token_transfers: (MirrorTransfer & { token_id: string })[];
+  token_transfers?: (MirrorTransfer & { token_id: string })[];
 };
+
+/** Net amount of `asset` ("0.0.0" for HBAR, or an HTS token id) the transaction moved into `account`. */
+export function creditedAmount(tx: MirrorTransaction, account: string, asset: string): bigint {
+  const rows = asset === HBAR_ASSET ? tx.transfers : (tx.token_transfers ?? []).filter(t => t.token_id === asset);
+  return rows.filter(t => t.account === account).reduce((sum, t) => sum + BigInt(t.amount), 0n);
+}
 
 /** Polls until the mirror node has ingested the transaction (typically 3–6s after consensus). */
 export async function waitForMirrorTransaction(

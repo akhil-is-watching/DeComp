@@ -4,6 +4,7 @@
  * stops the job itself.
  */
 import {
+  HBAR_ASSET,
   createPayingClient,
   formatTinybars,
   hashscanTxUrl,
@@ -116,7 +117,7 @@ export async function runJob(options: RunJobOptions): Promise<JobSummary> {
   let signed = false;
   const client = createPayingClient({
     account: options.account,
-    maxTinybarsPerPayment: options.maxTinybarsPerPayment,
+    allowedAssets: [{ asset: HBAR_ASSET, maxAmountPerPayment: options.maxTinybarsPerPayment }],
     onEvent: event => {
       switch (event.type) {
         case "payment_required": {
