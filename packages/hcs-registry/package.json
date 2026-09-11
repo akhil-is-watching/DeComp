@@ -1,0 +1,13 @@
+{
+  "name": "@decomp/hcs-registry",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@decomp/hedera-x402": "workspace:*",
+    "@hiero-ledger/sdk": "2.85.0"
+  }
+}
