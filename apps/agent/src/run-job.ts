@@ -1,11 +1,12 @@
 /**
  * Agent job flow: quote → pay the first tick (x402) → keep paying a tick just before each paid
- * window runs out → result. The agent can stop paying at a budget ceiling; the provider then
- * stops the job itself.
+ * window runs out → result. The agent can stop paying at a budget ceiling;
+ * the provider then stops the job itself.
  */
 import {
   HBAR_ASSET,
   createPayingClient,
+  creditedAmount,
   formatTinybars,
   hashscanTxUrl,
   waitForMirrorTransaction,
@@ -18,10 +19,12 @@ export type RunJobOptions = {
   jobType: string;
   params: Record<string, unknown>;
   account: AccountCredentials;
-  /** Largest single payment (one tick) the agent will sign, in tinybars. */
-  maxTinybarsPerPayment: bigint;
-  /** Most the agent will spend on this job; it stops paying once another tick would exceed this. */
-  maxBudgetTinybars?: bigint;
+  /** "0.0.0" for HBAR (the default) or an HTS token id the provider prices in. */
+  asset?: string;
+  /** Largest single payment (one tick) the agent will sign, in the asset's smallest unit. */
+  maxAmountPerPayment: bigint;
+  /** Most the agent will spend on this job, in the asset's smallest unit; it stops paying beyond this. */
+  maxBudget?: bigint;
   /** Pay the next tick when this many paid seconds remain; the provider's grace period covers settlement. */
   tickLeadSeconds?: number;
   /** Account the provider must be paid at, e.g. from its registry entry. */
@@ -34,21 +37,26 @@ export type RunJobOptions = {
 
 export type JobPayment = {
   transactionId: string;
-  amountTinybars: string;
-  mirror?: { result: string; consensusTimestamp: string; creditedTinybars: number };
+  asset: string;
+  /** In the asset's smallest unit. */
+  amount: string;
+  mirror?: { result: string; consensusTimestamp: string; credited: string };
 };
 
 export type JobSummary = {
   jobId: string;
+  providerId: string;
   providerUrl: string;
   providerAccount: string;
+  network: string;
   jobType: string;
   /** Runner status, e.g. succeeded or killed. */
   status: string;
   /** Provider billing state, e.g. finished or killed_unpaid. */
   state: string;
+  asset: string;
   payments: JobPayment[];
-  totalTinybars: string;
+  totalAmount: string;
   tickSeconds: number;
   /** Ticks the provider recorded as paid. */
   paidTicks: number;
@@ -58,8 +66,9 @@ export type JobSummary = {
   error?: string;
 };
 
-type ProviderOffer = { jobType: string; pricePerSecTinybars: string; tickSeconds: number; tickPriceTinybars: string };
-type ProviderInfo = { name: string; account: string; offers: ProviderOffer[] };
+type ProviderPrice = { asset: string; perSecond: string; tickAmount: string; label: string };
+type ProviderOffer = { jobType: string; tickSeconds: number; prices: ProviderPrice[] };
+type ProviderInfo = { name: string; account: string; network: string; offers: ProviderOffer[] };
 type ProviderJobView = {
   status: string;
   state: string;
@@ -75,6 +84,10 @@ const TERMINAL = new Set(["succeeded", "failed", "killed", "timeout", "cancelled
 /** JSON with long strings (e.g. base64 images) elided, for log lines. */
 function preview(value: unknown): string {
   return JSON.stringify(value, (_, v) => (typeof v === "string" && v.length > 120 ? `<${v.length} chars>` : v));
+}
+
+function describeAmount(asset: string, amount: bigint): string {
+  return asset === HBAR_ASSET ? formatTinybars(amount) : `${amount} units of ${asset}`;
 }
 
 async function fetchInfo(base: string): Promise<ProviderInfo> {
@@ -95,39 +108,42 @@ async function fetchJob(base: string, jobId: string): Promise<ProviderJobView> {
 export async function runJob(options: RunJobOptions): Promise<JobSummary> {
   const log = options.log ?? console.log;
   const base = options.providerUrl.replace(/\/$/, "");
+  const asset = options.asset ?? HBAR_ASSET;
 
   const info = await fetchInfo(base);
   if (options.expectedAccount && info.account !== options.expectedAccount) {
     throw new ProviderUnavailableError(base, new Error(`serves account ${info.account}, expected ${options.expectedAccount}`));
   }
   const offer = info.offers.find(o => o.jobType === options.jobType);
-  if (!offer) {
-    throw new ProviderUnavailableError(base, new Error(`${info.name} does not offer ${options.jobType}`));
+  const price = offer?.prices.find(p => p.asset === asset);
+  if (!offer || !price) {
+    throw new ProviderUnavailableError(base, new Error(`${info.name} does not offer ${options.jobType} priced in ${asset}`));
   }
-  const tickPrice = BigInt(offer.tickPriceTinybars);
-  const budget = options.maxBudgetTinybars;
-  if (budget !== undefined && tickPrice > budget) {
-    throw new ProviderUnavailableError(base, new Error(`one tick costs ${formatTinybars(tickPrice)}, above the ${formatTinybars(budget)} budget`));
+  const tickAmount = BigInt(price.tickAmount);
+  const budget = options.maxBudget;
+  if (budget !== undefined && tickAmount > budget) {
+    throw new ProviderUnavailableError(
+      base,
+      new Error(`one tick costs ${describeAmount(asset, tickAmount)}, above the ${describeAmount(asset, budget)} budget`),
+    );
   }
-  log(
-    `quote   ${info.name} ${info.account} charges ${formatTinybars(offer.pricePerSecTinybars)}/s, ` +
-      `billed in ${offer.tickSeconds}s ticks of ${formatTinybars(tickPrice)}`,
-  );
+  log(`quote   ${info.name} ${info.account} charges ${price.label}/s, billed in ${offer.tickSeconds}s ticks of ${describeAmount(asset, tickAmount)}`);
 
   let signed = false;
   const client = createPayingClient({
     account: options.account,
-    allowedAssets: [{ asset: HBAR_ASSET, maxAmountPerPayment: options.maxTinybarsPerPayment }],
+    allowedAssets: [{ asset, maxAmountPerPayment: options.maxAmountPerPayment }],
+    preferredAsset: asset,
     onEvent: event => {
       switch (event.type) {
         case "payment_required": {
-          const req = event.paymentRequired.accepts[0];
-          log(`402     pay ${req?.amount} of asset ${req?.asset} to ${req?.payTo} (feePayer ${req?.extra?.feePayer})`);
+          const offered = event.paymentRequired.accepts.map(r => `${r.amount} of ${r.asset}`).join(" or ");
+          log(`402     pay ${offered} to ${event.paymentRequired.accepts[0]?.payTo} (feePayer ${event.paymentRequired.accepts[0]?.extra?.feePayer})`);
           break;
         }
         case "payment_signed":
           signed = true;
-          log(`signed  TransferTransaction ${event.transactionId} by ${event.payer}`);
+          log(`signed  TransferTransaction ${event.transactionId} for ${event.requirements.amount} of ${event.requirements.asset} by ${event.payer}`);
           break;
         case "payment_settled":
           log(`settled ${hashscanTxUrl(event.settlement.transaction)}`);
@@ -138,11 +154,14 @@ export async function runJob(options: RunJobOptions): Promise<JobSummary> {
       }
     },
   });
-  const payProviderOnly = {
-    beforeSign: (paymentRequired: { accepts: { payTo: string }[] }) => {
+  const payProviderInAsset = {
+    beforeSign: (paymentRequired: { accepts: { payTo: string; asset: string }[] }) => {
       const wrongPayee = paymentRequired.accepts.find(a => a.payTo !== info.account);
       if (wrongPayee) {
         throw new Error(`402 asks for payment to ${wrongPayee.payTo}, but the provider account is ${info.account}`);
+      }
+      if (!paymentRequired.accepts.some(a => a.asset === asset)) {
+        throw new Error(`402 does not accept ${asset}`);
       }
     },
   };
@@ -156,7 +175,7 @@ export async function runJob(options: RunJobOptions): Promise<JobSummary> {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ jobType: options.jobType, params: options.params }),
       },
-      payProviderOnly,
+      payProviderInAsset,
     );
   } catch (error) {
     // Nothing was signed yet, so trying another provider can't double-pay.
@@ -168,7 +187,7 @@ export async function runJob(options: RunJobOptions): Promise<JobSummary> {
   }
 
   const { jobId } = created.body as { jobId: string };
-  const payments: JobPayment[] = [{ transactionId: created.settlement.transaction, amountTinybars: tickPrice.toString() }];
+  const payments: JobPayment[] = [{ transactionId: created.settlement.transaction, asset, amount: tickAmount.toString() }];
   let budgetExhausted = false;
   log(`running job ${jobId}, tick 1 paid (${offer.tickSeconds}s)`);
 
@@ -182,15 +201,15 @@ export async function runJob(options: RunJobOptions): Promise<JobSummary> {
 
     const remainingS = view.paidSeconds - (view.wallClockS ?? 0);
     if (view.status === "running" && !budgetExhausted && remainingS <= leadS) {
-      const spent = BigInt(payments.length) * tickPrice;
-      if (budget !== undefined && spent + tickPrice > budget) {
+      const spent = BigInt(payments.length) * tickAmount;
+      if (budget !== undefined && spent + tickAmount > budget) {
         budgetExhausted = true;
-        log(`budget  ${formatTinybars(spent)} spent; another tick would exceed ${formatTinybars(budget)}, so no more payments`);
+        log(`budget  ${describeAmount(asset, spent)} spent; another tick would exceed ${describeAmount(asset, budget)}, so no more payments`);
       } else {
         try {
-          const tick = await client.request(`${base}/jobs/${jobId}/ticks`, { method: "POST" }, payProviderOnly);
+          const tick = await client.request(`${base}/jobs/${jobId}/ticks`, { method: "POST" }, payProviderInAsset);
           if (tick.settlement?.success) {
-            payments.push({ transactionId: tick.settlement.transaction, amountTinybars: tickPrice.toString() });
+            payments.push({ transactionId: tick.settlement.transaction, asset, amount: tickAmount.toString() });
             log(`tick    ${payments.length} paid at ${view.wallClockS?.toFixed(1)}s, ${payments.length * offer.tickSeconds}s covered`);
             continue;
           }
@@ -203,30 +222,33 @@ export async function runJob(options: RunJobOptions): Promise<JobSummary> {
     await Bun.sleep(options.pollIntervalMs ?? 500);
   }
 
-  const total = BigInt(payments.length) * tickPrice;
+  const total = BigInt(payments.length) * tickAmount;
   log(
-    `result  ${view.status} after ${view.wallClockS}s, ${payments.length} tick(s) paid (${formatTinybars(total)}) ` +
+    `result  ${view.status} after ${view.wallClockS}s, ${payments.length} tick(s) paid (${describeAmount(asset, total)}) ` +
       (view.error ? `error=${view.error}` : preview(view.result)),
   );
 
   if (options.confirmOnMirror ?? true) {
     for (const payment of payments) {
       const tx = await waitForMirrorTransaction(payment.transactionId);
-      const credited = tx.transfers.find(t => t.account === info.account)?.amount ?? 0;
-      payment.mirror = { result: tx.result, consensusTimestamp: tx.consensus_timestamp, creditedTinybars: credited };
-      log(`mirror  ${payment.transactionId} ${tx.result}, provider credited ${formatTinybars(BigInt(credited))}`);
+      const credited = creditedAmount(tx, info.account, asset);
+      payment.mirror = { result: tx.result, consensusTimestamp: tx.consensus_timestamp, credited: credited.toString() };
+      log(`mirror  ${payment.transactionId} ${tx.result}, provider credited ${describeAmount(asset, credited)}`);
     }
   }
 
-  return {
+  const summary: JobSummary = {
     jobId,
+    providerId: info.name,
     providerUrl: base,
     providerAccount: info.account,
+    network: info.network,
     jobType: options.jobType,
     status: view.status,
     state: view.state,
+    asset,
     payments,
-    totalTinybars: total.toString(),
+    totalAmount: total.toString(),
     tickSeconds: offer.tickSeconds,
     paidTicks: view.paidTicks,
     budgetExhausted,
@@ -234,4 +256,5 @@ export async function runJob(options: RunJobOptions): Promise<JobSummary> {
     result: view.result,
     error: view.error,
   };
+  return summary;
 }

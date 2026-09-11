@@ -21,6 +21,6 @@ export const errorMessage = (error: unknown) => (error instanceof Error ? error.
 export function allPaymentsSettled(summary: JobSummary): boolean {
   return (
     summary.payments.length > 0 &&
-    summary.payments.every(p => p.mirror?.result === "SUCCESS" && BigInt(p.mirror.creditedTinybars) === BigInt(p.amountTinybars))
+    summary.payments.every(p => p.mirror?.result === "SUCCESS" && BigInt(p.mirror.credited) === BigInt(p.amount))
   );
 }

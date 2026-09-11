@@ -4,7 +4,8 @@ import { discoverProviders } from "./discovery";
 import { rankCandidates, routeWithFallback } from "./router";
 import { runJob, type RunJobOptions } from "./run-job";
 
-export type RoutedJobOptions = Omit<RunJobOptions, "providerUrl" | "expectedAccount" | "maxTinybarsPerPayment"> & {
+/** The registry lists HBAR prices, so routed jobs always pay in HBAR. */
+export type RoutedJobOptions = Omit<RunJobOptions, "providerUrl" | "expectedAccount" | "maxAmountPerPayment" | "asset"> & {
   topicId: string;
   /** Providers charging more per GPU-second are never considered. */
   maxPricePerSecTinybars?: bigint;
@@ -26,7 +27,7 @@ export async function discoverAndRunJob({ topicId, maxPricePerSecTinybars, ...op
         ...options,
         providerUrl: c.endpoint,
         expectedAccount: c.hederaAccount,
-        maxTinybarsPerPayment: c.pricePerSecTinybars * BigInt(c.tickSeconds),
+        maxAmountPerPayment: c.pricePerSecTinybars * BigInt(c.tickSeconds),
       }),
     ({ candidate: failed, error }) =>
       log(`fallback ${failed.providerId} unavailable (${error.reason instanceof Error ? error.reason.message : error.reason}); trying next`),

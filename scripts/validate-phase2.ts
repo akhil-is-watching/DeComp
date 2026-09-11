@@ -98,7 +98,7 @@ try {
     gate.record(
       "a live job routes to the cheapest eligible provider and settles",
       chosen.providerId === "PROVIDER_3" && summary.status === "succeeded" && allPaymentsSettled(summary),
-      `mandelbrot → ${chosen.providerId} for ${summary.totalTinybars} tinybars, ${summary.status}` +
+      `mandelbrot → ${chosen.providerId} for ${summary.totalAmount} tinybars, ${summary.status}` +
         (png ? ", image at logs/phase2-mandelbrot.png" : ""),
     );
   } catch (error) {

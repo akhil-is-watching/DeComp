@@ -76,7 +76,7 @@ try {
       providerUrl,
       ...LONG_JOB,
       account: agent,
-      maxTinybarsPerPayment: TICK_PRICE,
+      maxAmountPerPayment: TICK_PRICE,
       log: agentLog("metered"),
     });
     const ids = new Set(summary.payments.map(p => p.transactionId));
@@ -115,14 +115,14 @@ try {
       providerUrl,
       ...LONG_JOB,
       account: agent,
-      maxTinybarsPerPayment: TICK_PRICE,
-      maxBudgetTinybars: budget,
+      maxAmountPerPayment: TICK_PRICE,
+      maxBudget: budget,
       log: agentLog("budget"),
     });
     gate.record(
       "agent stops paying at its budget ceiling",
-      summary.budgetExhausted && summary.payments.length === 2 && BigInt(summary.totalTinybars) <= budget,
-      `${summary.payments.length} ticks paid, ${summary.totalTinybars} of a ${budget} tinybar budget`,
+      summary.budgetExhausted && summary.payments.length === 2 && BigInt(summary.totalAmount) <= budget,
+      `${summary.payments.length} ticks paid, ${summary.totalAmount} of a ${budget} tinybar budget`,
     );
 
     const logged = await runnerLogEntry(summary.jobId);

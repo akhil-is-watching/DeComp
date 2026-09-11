@@ -67,7 +67,7 @@ try {
         providerUrl,
         ...job,
         account: accountFromEnv("AGENT"),
-        maxTinybarsPerPayment,
+        maxAmountPerPayment: maxTinybarsPerPayment,
         log: line => console.log(`   [${run}] ${line}`),
       });
       const result = summary.result as { device?: string; iterations?: number } | undefined;
