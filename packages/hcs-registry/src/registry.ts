@@ -4,9 +4,10 @@
  * is the account it advertises, so nobody can register someone else's payout account.
  */
 
-export const REGISTRATION_SCHEMA = "decomp/provider-registration@1";
+export const REGISTRATION_SCHEMA = "decomp/provider-registration@2";
 
-export type JobTypeOffer = { name: string; priceTinybars: string };
+/** Metered pricing: a job is paid in ticks of `tickSeconds`, each costing pricePerSecTinybars * tickSeconds. */
+export type JobTypeOffer = { name: string; pricePerSecTinybars: string; tickSeconds: number };
 
 export type ProviderRegistration = {
   schema: typeof REGISTRATION_SCHEMA;
@@ -28,6 +29,16 @@ export type RegistryEntry = ProviderRegistration & {
 const ACCOUNT_ID = /^\d+\.\d+\.\d+$/;
 const JOB_TYPE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
+function parseOffer(value: unknown): JobTypeOffer | null {
+  const o = value as Record<string, unknown> | null;
+  if (!o || typeof o.name !== "string" || !JOB_TYPE.test(o.name)) return null;
+  const price = o.pricePerSecTinybars;
+  if (typeof price !== "string" || !/^\d+$/.test(price) || BigInt(price) <= 0n) return null;
+  const tick = o.tickSeconds;
+  if (typeof tick !== "number" || !Number.isInteger(tick) || tick < 1 || tick > 3600) return null;
+  return { name: o.name, pricePerSecTinybars: price, tickSeconds: tick };
+}
+
 export function parseRegistration(value: unknown): ProviderRegistration | null {
   if (!value || typeof value !== "object") return null;
   const v = value as Record<string, unknown>;
@@ -44,10 +55,9 @@ export function parseRegistration(value: unknown): ProviderRegistration | null {
   if (!Array.isArray(v.jobTypes) || v.jobTypes.length === 0) return null;
   const jobTypes: JobTypeOffer[] = [];
   for (const offer of v.jobTypes as unknown[]) {
-    const o = offer as Record<string, unknown> | null;
-    if (!o || typeof o.name !== "string" || !JOB_TYPE.test(o.name)) return null;
-    if (typeof o.priceTinybars !== "string" || !/^\d+$/.test(o.priceTinybars) || BigInt(o.priceTinybars) <= 0n) return null;
-    jobTypes.push({ name: o.name, priceTinybars: o.priceTinybars });
+    const parsed = parseOffer(offer);
+    if (!parsed) return null;
+    jobTypes.push(parsed);
   }
   return {
     schema: REGISTRATION_SCHEMA,

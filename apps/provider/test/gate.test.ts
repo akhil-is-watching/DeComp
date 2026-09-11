@@ -19,8 +19,14 @@ let stop = () => {};
 beforeAll(async () => {
   ({ stop } = await ensureServices([
     runnerService(),
-    // No registry: this provider's payTo is a placeholder, so it must not advertise itself.
-    providerService("PROVIDER_1", PORT, { PROVIDER_1_ACCOUNT_ID: PAY_TO, PROVIDER_OFFERS: "benchmark:10000000", REGISTRY_TOPIC_ID: "" }),
+    // 2,000,000 tinybars/s in 5s ticks = 10,000,000 tinybars per tick. No registry: this
+    // provider's payTo is a placeholder, so it must not advertise itself.
+    providerService("PROVIDER_1", PORT, {
+      PROVIDER_1_ACCOUNT_ID: PAY_TO,
+      PROVIDER_OFFERS: "benchmark:2000000",
+      TICK_SECONDS: "5",
+      REGISTRY_TOPIC_ID: "",
+    }),
   ]));
 });
 afterAll(() => stop());
@@ -81,4 +87,10 @@ test("payment signed with the wrong key is rejected before any job starts", asyn
 test("unknown job id is 404", async () => {
   const res = await fetch(`${BASE}/jobs/does-not-exist`);
   expect(res.status).toBe(404);
+});
+
+test("ticks can't be bought for a job that doesn't exist", async () => {
+  const res = await fetch(`${BASE}/jobs/does-not-exist/ticks`, { method: "POST" });
+  expect(res.status).toBe(404);
+  expect(res.headers.has("PAYMENT-REQUIRED")).toBe(false);
 });

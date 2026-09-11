@@ -1,15 +1,23 @@
-export type Offer = { jobType: string; priceTinybars: bigint };
+/** Metered offers: each job type has a price per GPU-second and is paid in fixed-length ticks. */
+export type Offer = { jobType: string; pricePerSecTinybars: bigint; tickSeconds: number };
 export type JobRequest = { jobType: string; params: Record<string, unknown> };
 
-/** Parses `PROVIDER_OFFERS`, e.g. `benchmark:10000000,upscale:25000000` (flat tinybars per job). */
-export function parseOffers(spec: string): Map<string, Offer> {
+export function tickPrice(offer: Offer): bigint {
+  return offer.pricePerSecTinybars * BigInt(offer.tickSeconds);
+}
+
+/** Parses `PROVIDER_OFFERS`, e.g. `benchmark:2000000,mandelbrot:3000000` (tinybars per GPU-second). */
+export function parseOffers(spec: string, tickSeconds: number): Map<string, Offer> {
+  if (!Number.isInteger(tickSeconds) || tickSeconds < 1) {
+    throw new Error(`TICK_SECONDS must be a positive integer, got ${tickSeconds}`);
+  }
   const offers = new Map<string, Offer>();
   for (const entry of spec.split(",").map(s => s.trim()).filter(Boolean)) {
     const [jobType, price] = entry.split(":");
     if (!jobType || !price || !/^\d+$/.test(price) || BigInt(price) <= 0n) {
-      throw new Error(`Invalid offer "${entry}" — expected <jobType>:<tinybars>`);
+      throw new Error(`Invalid offer "${entry}" — expected <jobType>:<tinybars per second>`);
     }
-    offers.set(jobType, { jobType, priceTinybars: BigInt(price) });
+    offers.set(jobType, { jobType, pricePerSecTinybars: BigInt(price), tickSeconds });
   }
   if (offers.size === 0) {
     throw new Error("PROVIDER_OFFERS must list at least one job type");

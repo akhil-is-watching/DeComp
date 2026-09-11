@@ -4,7 +4,8 @@ export type Candidate = {
   providerId: string;
   hederaAccount: string;
   endpoint: string;
-  priceTinybars: bigint;
+  pricePerSecTinybars: bigint;
+  tickSeconds: number;
   registeredAt: string;
 };
 
@@ -22,13 +23,22 @@ export class ProviderUnavailableError extends Error {
   }
 }
 
-/** Cheapest first; ties go to the most recent registration, then account id for a stable order. */
-export function rankCandidates(candidates: Candidate[], { maxPriceTinybars }: { maxPriceTinybars?: bigint } = {}): Candidate[] {
+const compareBigints = (a: bigint, b: bigint) => (a < b ? -1 : a > b ? 1 : 0);
+
+/**
+ * Cheapest per GPU-second first. Ties go to the smaller tick (less paid up front), then the most
+ * recent registration, then account id for a stable order.
+ */
+export function rankCandidates(
+  candidates: Candidate[],
+  { maxPricePerSecTinybars }: { maxPricePerSecTinybars?: bigint } = {},
+): Candidate[] {
   return candidates
-    .filter(c => maxPriceTinybars === undefined || c.priceTinybars <= maxPriceTinybars)
+    .filter(c => maxPricePerSecTinybars === undefined || c.pricePerSecTinybars <= maxPricePerSecTinybars)
     .sort(
       (a, b) =>
-        (a.priceTinybars < b.priceTinybars ? -1 : a.priceTinybars > b.priceTinybars ? 1 : 0) ||
+        compareBigints(a.pricePerSecTinybars, b.pricePerSecTinybars) ||
+        a.tickSeconds - b.tickSeconds ||
         b.registeredAt.localeCompare(a.registeredAt, undefined, { numeric: true }) ||
         a.hederaAccount.localeCompare(b.hederaAccount, undefined, { numeric: true }),
     );

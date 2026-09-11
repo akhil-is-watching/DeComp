@@ -4,14 +4,14 @@ import { offersFor } from "../src/discovery";
 
 const NETWORK = "hedera:testnet";
 
-function registration(account: string, jobTypes: [string, string][], consensusTimestamp = "1789151420.0"): RegistryEntry {
+function registration(account: string, jobTypes: [name: string, pricePerSec: string][], consensusTimestamp = "1789151420.0"): RegistryEntry {
   return {
     schema: REGISTRATION_SCHEMA,
     providerId: `provider-${account}`,
     hederaAccount: account,
     endpoint: `http://127.0.0.1:${4000 + Number(account.split(".")[2])}`,
     network: NETWORK,
-    jobTypes: jobTypes.map(([name, priceTinybars]) => ({ name, priceTinybars })),
+    jobTypes: jobTypes.map(([name, pricePerSecTinybars]) => ({ name, pricePerSecTinybars, tickSeconds: 5 })),
     publishedAt: "2026-09-12T00:00:00.000Z",
     consensusTimestamp,
     sequenceNumber: 1,
@@ -20,9 +20,9 @@ function registration(account: string, jobTypes: [string, string][], consensusTi
 }
 
 const registry = [
-  registration("0.0.21", [["benchmark", "10000000"]]),
-  registration("0.0.22", [["benchmark", "8000000"], ["mandelbrot", "20000000"]]),
-  registration("0.0.23", [["mandelbrot", "15000000"]]),
+  registration("0.0.21", [["benchmark", "2000000"]]),
+  registration("0.0.22", [["benchmark", "1600000"], ["mandelbrot", "4000000"]]),
+  registration("0.0.23", [["mandelbrot", "3000000"]]),
 ];
 
 test("only providers offering the requested job type are candidates", () => {
@@ -32,11 +32,11 @@ test("only providers offering the requested job type are candidates", () => {
 });
 
 test("each candidate is priced at its offer for the requested job type", () => {
-  const prices = Object.fromEntries(offersFor(registry, "mandelbrot", NETWORK).map(c => [c.hederaAccount, c.priceTinybars]));
-  expect(prices).toEqual({ "0.0.22": 20000000n, "0.0.23": 15000000n });
+  const prices = Object.fromEntries(offersFor(registry, "mandelbrot", NETWORK).map(c => [c.hederaAccount, c.pricePerSecTinybars]));
+  expect(prices).toEqual({ "0.0.22": 4000000n, "0.0.23": 3000000n });
 });
 
 test("a provider that dropped a job type in its newest registration is no longer a candidate", () => {
-  const updated = registration("0.0.22", [["mandelbrot", "20000000"]], "1789159999.0");
+  const updated = registration("0.0.22", [["mandelbrot", "4000000"]], "1789159999.0");
   expect(offersFor([...registry, updated], "benchmark", NETWORK).map(c => c.hederaAccount)).toEqual(["0.0.21"]);
 });

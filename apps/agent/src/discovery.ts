@@ -12,7 +12,8 @@ export function offersFor(entries: RegistryEntry[], jobType: string, network: st
             providerId: entry.providerId,
             hederaAccount: entry.hederaAccount,
             endpoint: entry.endpoint,
-            priceTinybars: BigInt(offer.priceTinybars),
+            pricePerSecTinybars: BigInt(offer.pricePerSecTinybars),
+            tickSeconds: offer.tickSeconds,
             registeredAt: entry.consensusTimestamp,
           },
         ]

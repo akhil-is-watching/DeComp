@@ -7,16 +7,16 @@ import { $, type Subprocess } from "bun";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readRegistry } from "@decomp/hcs-registry";
-import { accountFromEnv, hbarToTinybars, hederaNetwork, requireEnv } from "@decomp/hedera-x402";
+import { accountFromEnv, hederaNetwork, requireEnv } from "@decomp/hedera-x402";
 import { discoverAndRunJob, discoverProviders } from "@decomp/agent";
 import { ROOT, ensureServices, providerService, runnerService, waitForHealthy } from "./lib/services";
 
 const topicId = requireEnv("REGISTRY_TOPIC_ID");
 const network = hederaNetwork();
 const PROVIDERS = [
-  { name: "PROVIDER_1", port: 4021, offers: "benchmark:10000000" },
-  { name: "PROVIDER_2", port: 4022, offers: "benchmark:8000000,mandelbrot:20000000" },
-  { name: "PROVIDER_3", port: 4023, offers: "mandelbrot:15000000" },
+  { name: "PROVIDER_1", port: 4021, offers: "benchmark:2000000" },
+  { name: "PROVIDER_2", port: 4022, offers: "benchmark:1600000,mandelbrot:4000000" },
+  { name: "PROVIDER_3", port: 4023, offers: "mandelbrot:3000000" },
 ].map(p => ({ ...p, account: requireEnv(`${p.name}_ACCOUNT_ID`) }));
 
 let failures = 0;
@@ -42,7 +42,7 @@ try {
 
   const bootSeconds = Math.floor(Date.now() / 1000) - 2;
   const booted = await Promise.all(
-    PROVIDERS.map(p => ensureServices([providerService(p.name, p.port, { PROVIDER_OFFERS: p.offers })])),
+    PROVIDERS.map(p => ensureServices([providerService(p.name, p.port, { PROVIDER_OFFERS: p.offers, TICK_SECONDS: "5" })])),
   );
   const readyAt = Date.now();
   booted.forEach(({ stop, started }, i) => {
@@ -69,11 +69,11 @@ try {
   );
 
   for (const [jobType, expected] of [
-    ["benchmark", "PROVIDER_1=10000000,PROVIDER_2=8000000"],
-    ["mandelbrot", "PROVIDER_2=20000000,PROVIDER_3=15000000"],
+    ["benchmark", "PROVIDER_1=2000000,PROVIDER_2=1600000"],
+    ["mandelbrot", "PROVIDER_2=4000000,PROVIDER_3=3000000"],
   ] as const) {
     const found = (await discoverProviders(topicId, jobType))
-      .map(c => `${c.providerId}=${c.priceTinybars}`)
+      .map(c => `${c.providerId}=${c.pricePerSecTinybars}`)
       .sort()
       .join(",");
     record(`discovery for ${jobType} returns exactly the providers offering it`, found === expected, found || "none");
@@ -94,7 +94,6 @@ try {
       jobType: "mandelbrot",
       params: { width: 512, height: 512, max_iter: 400 },
       account: agent,
-      maxTinybarsPerPayment: hbarToTinybars(1),
       log: agentLog("route"),
     });
     const png = (summary.result as { png_base64?: string } | undefined)?.png_base64;
@@ -122,7 +121,6 @@ try {
         jobType: "benchmark",
         params: { duration_s: 2 },
         account: agent,
-        maxTinybarsPerPayment: hbarToTinybars(1),
         log: agentLog("fallback"),
       });
       const settled = summary.mirror?.every(m => m.result === "SUCCESS" && BigInt(m.creditedTinybars) === BigInt(summary.amountTinybars));

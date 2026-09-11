@@ -14,7 +14,7 @@ const base: ProviderRegistration = {
   hederaAccount: "0.0.1001",
   endpoint: "http://127.0.0.1:4021",
   network: "hedera:testnet",
-  jobTypes: [{ name: "benchmark", priceTinybars: "10000000" }],
+  jobTypes: [{ name: "benchmark", pricePerSecTinybars: "2000000", tickSeconds: 5 }],
   publishedAt: "2026-09-12T00:00:00.000Z",
 };
 
@@ -22,19 +22,24 @@ function entry(overrides: Partial<RegistryEntry>): RegistryEntry {
   return { ...base, consensusTimestamp: "1789151420.000000001", sequenceNumber: 1, payerAccountId: base.hederaAccount, ...overrides };
 }
 
+const offer = (overrides: Record<string, unknown>) => ({ jobTypes: [{ name: "benchmark", pricePerSecTinybars: "1", tickSeconds: 5, ...overrides }] });
+
 describe("parseRegistration", () => {
   test("accepts a well-formed registration", () => {
     expect(parseRegistration(base)).toEqual(base);
   });
 
   test.each([
-    ["wrong schema", { schema: "other@1" }],
-    ["bad account id", { hederaAccount: "0xabc" }],
-    ["non-http endpoint", { endpoint: "file:///etc/passwd" }],
+    ["an older schema version", { schema: "decomp/provider-registration@1" }],
+    ["a bad account id", { hederaAccount: "0xabc" }],
+    ["a non-http endpoint", { endpoint: "file:///etc/passwd" }],
     ["no job types", { jobTypes: [] }],
-    ["zero price", { jobTypes: [{ name: "benchmark", priceTinybars: "0" }] }],
-    ["decimal price", { jobTypes: [{ name: "benchmark", priceTinybars: "0.5" }] }],
-    ["bad job type name", { jobTypes: [{ name: "Rm -rf", priceTinybars: "1" }] }],
+    ["a zero price", offer({ pricePerSecTinybars: "0" })],
+    ["a decimal price", offer({ pricePerSecTinybars: "0.5" })],
+    ["a bad job type name", offer({ name: "Rm -rf" })],
+    ["a zero-length tick", offer({ tickSeconds: 0 })],
+    ["a fractional tick", offer({ tickSeconds: 1.5 })],
+    ["a missing tick", offer({ tickSeconds: undefined })],
   ])("rejects %s", (_, overrides) => {
     expect(parseRegistration({ ...base, ...overrides })).toBeNull();
   });
@@ -48,7 +53,7 @@ test("compareTimestamps orders by seconds then nanoseconds", () => {
 
 describe("currentRegistrations", () => {
   test("keeps only the newest registration per account", () => {
-    const older = entry({ consensusTimestamp: "1789151420.1", jobTypes: [{ name: "benchmark", priceTinybars: "5" }] });
+    const older = entry({ consensusTimestamp: "1789151420.1", ...offer({ pricePerSecTinybars: "5" }) });
     const newer = entry({ consensusTimestamp: "1789151500.1", sequenceNumber: 2 });
     expect(currentRegistrations([newer, older], "hedera:testnet")).toEqual([newer]);
   });

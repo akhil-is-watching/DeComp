@@ -1,18 +1,20 @@
 import { describe, expect, mock, test } from "bun:test";
 import { ProviderUnavailableError, rankCandidates, routeWithFallback, type Candidate } from "../src/router";
 
-function candidate(providerId: string, priceTinybars: bigint, registeredAt = "1789151420.0"): Candidate {
+function candidate(providerId: string, pricePerSecTinybars: bigint, registeredAt = "1789151420.0", tickSeconds = 5): Candidate {
+  const n = Number(providerId.replace(/\D/g, ""));
   return {
     providerId,
-    hederaAccount: `0.0.${1000 + Number(providerId.replace(/\D/g, ""))}`,
-    endpoint: `http://127.0.0.1:40${providerId.replace(/\D/g, "").padStart(2, "0")}`,
-    priceTinybars,
+    hederaAccount: `0.0.${1000 + n}`,
+    endpoint: `http://127.0.0.1:${4020 + n}`,
+    pricePerSecTinybars,
+    tickSeconds,
     registeredAt,
   };
 }
 
 describe("rankCandidates", () => {
-  test("picks the cheapest, not the first listed", () => {
+  test("picks the cheapest per-second price, not the first listed", () => {
     const ranked = rankCandidates([candidate("P1", 30n), candidate("P2", 10n), candidate("P3", 20n)]);
     expect(ranked.map(c => c.providerId)).toEqual(["P2", "P3", "P1"]);
   });
@@ -25,13 +27,18 @@ describe("rankCandidates", () => {
     }
   });
 
-  test("breaks price ties by most recent registration", () => {
+  test("at equal price, the smaller tick wins", () => {
+    const ranked = rankCandidates([candidate("P1", 10n, "1789151999.0", 10), candidate("P2", 10n, "1789151420.0", 5)]);
+    expect(ranked[0]!.providerId).toBe("P2");
+  });
+
+  test("at equal price and tick, the most recent registration wins", () => {
     const ranked = rankCandidates([candidate("P1", 10n, "1789151420.5"), candidate("P2", 10n, "1789151999.0")]);
     expect(ranked[0]!.providerId).toBe("P2");
   });
 
-  test("drops providers above the price ceiling", () => {
-    const ranked = rankCandidates([candidate("P1", 30n), candidate("P2", 10n)], { maxPriceTinybars: 20n });
+  test("drops providers above the per-second price ceiling", () => {
+    const ranked = rankCandidates([candidate("P1", 30n), candidate("P2", 10n)], { maxPricePerSecTinybars: 20n });
     expect(ranked.map(c => c.providerId)).toEqual(["P2"]);
   });
 

@@ -1,14 +1,13 @@
 /**
- * GPU compute provider. `POST /jobs` is x402-gated at a flat price per job type; the job starts
- * once payment verifies, and is cancelled if settlement then fails. Results are only released
- * for jobs whose payment settled.
+ * GPU compute provider with metered billing. Creating a job (POST /jobs) pays for its first tick
+ * of GPU time; each further tick is paid through POST /jobs/:id/ticks. The job queue kills any
+ * job that runs past its paid time plus a grace period, so payment is enforced here rather than
+ * trusted to the agent. Results are only released for jobs whose payments settled.
  */
-import { x402HTTPResourceServer, type RoutesConfig } from "@x402/core/server";
+import type { SettleResponse } from "@x402/core/types";
+import { REGISTRATION_SCHEMA, publishRegistration } from "@decomp/hcs-registry";
 import {
-  HBAR_ASSET,
   accountFromEnv,
-  createPaymentGate,
-  createResourceServer,
   fetchFacilitatorFeePayer,
   formatTinybars,
   hashscanTxUrl,
@@ -16,16 +15,19 @@ import {
   requireEnv,
   sdkClient,
 } from "@decomp/hedera-x402";
-import { REGISTRATION_SCHEMA, publishRegistration } from "@decomp/hcs-registry";
-import { parseJobRequest, parseOffers, type JobRequest } from "./offers";
+import { JobQueue, paidSeconds, type MeteredJob } from "./job-queue";
+import { parseJobRequest, parseOffers, tickPrice } from "./offers";
 import { RunnerClient, RunnerError, type RunnerJob } from "./runner-client";
+import { createJobGate } from "./x402-gate";
 
 const { network, facilitatorUrl } = networkConfig();
 const providerName = process.env.PROVIDER_NAME ?? "PROVIDER_1";
 const payTo = requireEnv(`${providerName}_ACCOUNT_ID`);
 const port = Number(process.env.PORT ?? 4021);
-const maxRuntimeS = Number(process.env.MAX_RUNTIME_S ?? 120);
-const offers = parseOffers(process.env.PROVIDER_OFFERS ?? "benchmark:10000000");
+const maxRuntimeS = Number(process.env.MAX_RUNTIME_S ?? 600);
+const tickSeconds = Number(process.env.TICK_SECONDS ?? 5);
+const graceSeconds = Number(process.env.TICK_GRACE_SECONDS ?? 5);
+const offers = parseOffers(process.env.PROVIDER_OFFERS ?? "benchmark:2000000", tickSeconds);
 const runner = new RunnerClient(process.env.JOB_RUNNER_URL ?? "http://127.0.0.1:8100");
 const publicUrl = process.env.PUBLIC_URL ?? `http://127.0.0.1:${port}`;
 const registryTopicId = process.env.REGISTRY_TOPIC_ID || undefined;
@@ -38,40 +40,26 @@ type RegistrationState = {
 };
 let registration: RegistrationState = { status: registryTopicId ? "pending" : "disabled" };
 
-type Payment = { transaction: string; payer: string; amount: string; asset: string; settledAt: string };
-type ProviderJob = JobRequest & {
-  id: string;
-  createdAt: string;
-  state: "awaiting_settlement" | "paid" | "settlement_failed";
-  payments: Payment[];
-};
-const jobs = new Map<string, ProviderJob>();
-
-const routes: RoutesConfig = {
-  "POST /jobs": {
-    accepts: {
-      scheme: "exact",
-      network,
-      payTo,
-      // Body was validated before the gate runs, so the offer always exists here.
-      price: context => {
-        const { jobType } = context.adapter.getBody?.() as JobRequest;
-        return { asset: HBAR_ASSET, amount: offers.get(jobType)!.priceTinybars.toString() };
-      },
-      maxTimeoutSeconds: 120,
-    },
-    description: `GPU job on ${providerName}`,
-    mimeType: "application/json",
-  },
-};
-const gate = createPaymentGate(new x402HTTPResourceServer(createResourceServer(network), routes));
+const queue = new JobQueue(runner, { graceSeconds, log: line => console.log(`[meter] ${line}`) });
+queue.start();
+const gate = createJobGate({ network, payTo, providerName, offers, queue, tickSeconds });
 
 function offerList() {
   return [...offers.values()].map(o => ({
     jobType: o.jobType,
-    priceTinybars: o.priceTinybars.toString(),
-    price: formatTinybars(o.priceTinybars),
+    pricePerSecTinybars: o.pricePerSecTinybars.toString(),
+    tickSeconds: o.tickSeconds,
+    tickPriceTinybars: tickPrice(o).toString(),
+    price: `${formatTinybars(o.pricePerSecTinybars)}/s`,
   }));
+}
+
+function recordSettlement(job: MeteredJob, settlement: SettleResponse) {
+  const payment = queue.recordPayment(job.id, settlement);
+  console.log(
+    `[provider] tick ${payment.tick} settled for job ${job.id} (${paidSeconds(job)}s paid): ` +
+      hashscanTxUrl(settlement.transaction, network),
+  );
 }
 
 async function createJob(req: Request): Promise<Response> {
@@ -80,7 +68,7 @@ async function createJob(req: Request): Promise<Response> {
     return Response.json({ error: parsed.error, offers: offerList() }, { status: 400 });
   }
 
-  let job: ProviderJob | undefined;
+  let job: MeteredJob | undefined;
   const outcome = await gate(req, parsed, async payment => {
     if (!payment) {
       return Response.json({ error: "payment required" }, { status: 402 });
@@ -95,10 +83,12 @@ async function createJob(req: Request): Promise<Response> {
       console.error("[provider] job runner unavailable:", error);
       return Response.json({ error: "job runner unavailable" }, { status: 503 });
     }
-    job = { ...parsed, id, createdAt: new Date().toISOString(), state: "awaiting_settlement", payments: [] };
-    jobs.set(id, job);
-    console.log(`[provider] payment verified for ${payment.requirements.amount} tinybars → started job ${id}`);
-    return Response.json({ jobId: id, status: "running", statusUrl: `/jobs/${id}` }, { status: 202 });
+    job = queue.create({ id, jobType: parsed.jobType, params: parsed.params, offer: offers.get(parsed.jobType)! });
+    console.log(`[provider] first tick verified (${payment.requirements.amount} tinybars) → started job ${id}`);
+    return Response.json(
+      { jobId: id, status: "running", statusUrl: `/jobs/${id}`, ticksUrl: `/jobs/${id}/ticks`, tickSeconds: job.offer.tickSeconds },
+      { status: 202 },
+    );
   });
 
   switch (outcome.kind) {
@@ -108,42 +98,59 @@ async function createJob(req: Request): Promise<Response> {
     case "handler_failed":
       console.log(`[provider] job not started (${outcome.response.status}); payment not settled`);
       break;
-    case "settled": {
-      const { settlement } = outcome;
-      job!.state = "paid";
-      job!.payments.push({
-        transaction: settlement.transaction,
-        payer: settlement.payer ?? "",
-        amount: offers.get(job!.jobType)!.priceTinybars.toString(),
-        asset: HBAR_ASSET,
-        settledAt: new Date().toISOString(),
-      });
-      console.log(`[provider] settled job ${job!.id}: ${hashscanTxUrl(settlement.transaction, network)}`);
+    case "settled":
+      recordSettlement(job!, outcome.settlement);
       break;
-    }
     case "settle_failed":
       console.error(`[provider] settlement failed (${outcome.errorReason}); cancelling job ${job?.id}`);
-      if (job) {
-        job.state = "settlement_failed";
-        await runner.cancel(job.id).catch(error => console.error("[provider] cancel failed:", error));
-      }
+      if (job) await queue.markSettlementFailed(job.id);
       break;
   }
   return outcome.response;
 }
 
-async function getJob(id: string): Promise<Response> {
-  const job = jobs.get(id);
+async function payTick(req: Request, id: string): Promise<Response> {
+  const job = queue.get(id);
   if (!job) {
     return Response.json({ error: "job not found" }, { status: 404 });
   }
-  let run: RunnerJob | undefined;
+  // Refuse before issuing a challenge, so nobody pays for a tick that can't be used.
+  const refusal = queue.tickRefusal(job);
+  if (refusal) {
+    return Response.json({ error: refusal }, { status: 409 });
+  }
+
+  const outcome = await gate(req, undefined, async payment => {
+    if (!payment) {
+      return Response.json({ error: "payment required" }, { status: 402 });
+    }
+    const late = queue.tickRefusal(job);
+    if (late) {
+      return Response.json({ error: late }, { status: 409 });
+    }
+    return Response.json({ jobId: id, tick: job.payments.length + 1, tickSeconds: job.offer.tickSeconds });
+  });
+
+  if (outcome.kind === "settled") {
+    recordSettlement(job, outcome.settlement);
+  } else if (outcome.kind === "settle_failed") {
+    console.error(`[provider] tick settlement failed for job ${id} (${outcome.errorReason})`);
+  }
+  return outcome.response;
+}
+
+async function getJob(id: string): Promise<Response> {
+  const job = queue.get(id);
+  if (!job) {
+    return Response.json({ error: "job not found" }, { status: 404 });
+  }
+  let run: RunnerJob | undefined = job.lastRun;
   try {
     run = await runner.get(id);
   } catch (error) {
     console.error(`[provider] could not read job ${id} from runner:`, error);
   }
-  const paid = job.state === "paid";
+  const released = (job.state === "paid" || job.state === "finished") && run?.status === "succeeded";
   return Response.json({
     jobId: job.id,
     jobType: job.jobType,
@@ -153,8 +160,14 @@ async function getJob(id: string): Promise<Response> {
     wallClockS: run?.wall_clock_s,
     startedAt: run?.started_at,
     finishedAt: run?.finished_at,
-    // Results are withheld until the payment has actually settled on-chain.
-    result: paid ? run?.result : undefined,
+    tickSeconds: job.offer.tickSeconds,
+    tickPriceTinybars: tickPrice(job.offer).toString(),
+    paidTicks: job.payments.length,
+    paidSeconds: paidSeconds(job),
+    graceSeconds,
+    reconciliation: job.reconciliation,
+    // Results are withheld until payment has settled on-chain.
+    result: released ? run?.result : undefined,
     error: run?.error ?? undefined,
     payments: job.payments.map(p => ({ ...p, hashscan: hashscanTxUrl(p.transaction, network) })),
   });
@@ -177,18 +190,23 @@ const server = Bun.serve({
           endpoint: publicUrl,
           network,
           facilitator: facilitatorUrl,
+          metering: { tickSeconds, graceSeconds },
           offers: offerList(),
           registry: { topicId: registryTopicId, ...registration },
         }),
     },
     "/jobs": { POST: createJob },
     "/jobs/:id": { GET: req => getJob(req.params.id) },
+    "/jobs/:id/ticks": { POST: req => payTick(req, req.params.id) },
   },
   fetch: () => Response.json({ error: "not found" }, { status: 404 }),
 });
 
 console.log(`[provider] ${providerName} (${payTo}) listening on ${server.url}`);
-console.log(`[provider] offers: ${offerList().map(o => `${o.jobType}=${o.price}`).join(", ")}`);
+console.log(
+  `[provider] offers: ${offerList().map(o => `${o.jobType}=${o.price}`).join(", ")} ` +
+    `in ${tickSeconds}s ticks, ${graceSeconds}s grace`,
+);
 fetchFacilitatorFeePayer(network).then(
   feePayer => console.log(`[provider] facilitator ${facilitatorUrl} fee payer ${feePayer}`),
   error => console.error("[provider] facilitator unreachable:", error),
@@ -208,7 +226,11 @@ if (registryTopicId) {
     hederaAccount: payTo,
     endpoint: publicUrl,
     network,
-    jobTypes: [...offers.values()].map(o => ({ name: o.jobType, priceTinybars: o.priceTinybars.toString() })),
+    jobTypes: [...offers.values()].map(o => ({
+      name: o.jobType,
+      pricePerSecTinybars: o.pricePerSecTinybars.toString(),
+      tickSeconds: o.tickSeconds,
+    })),
     publishedAt: new Date().toISOString(),
   })
     .then(
