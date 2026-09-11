@@ -13,6 +13,7 @@
     "dev:runner": "cd services/job-runner && .venv/bin/python -m uvicorn app:app --host 127.0.0.1 --port 8100",
     "dev:provider": "bun apps/provider/src/index.ts",
     "agent": "bun apps/agent/src/index.ts",
+    "validate:phase1": "bun scripts/validate-phase1.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
