@@ -18,6 +18,7 @@
     "validate:phase1": "bun scripts/validate-phase1.ts",
     "validate:phase2": "bun scripts/validate-phase2.ts",
     "validate:phase3": "bun scripts/validate-phase3.ts",
+    "validate:phase4": "bun scripts/validate-phase4.ts",
     "audit:reconstruct": "bun scripts/reconstruct-audit.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
