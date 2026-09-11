@@ -90,6 +90,12 @@ function preview(value: unknown): string {
   return JSON.stringify(value, (_, v) => (typeof v === "string" && v.length > 120 ? `<${v.length} chars>` : v));
 }
 
+/** The x402 or provider error message in a rejection body, falling back to a preview of the body. */
+function rejectionDetail(body: unknown): string {
+  const error = (body as { error?: unknown } | null | undefined)?.error;
+  return typeof error === "string" ? error : preview(body);
+}
+
 function describeAmount(asset: string, amount: bigint): string {
   return asset === HBAR_ASSET ? formatTinybars(amount) : `${amount} units of ${asset}`;
 }
@@ -153,7 +159,7 @@ export async function runJob(options: RunJobOptions): Promise<JobSummary> {
           log(`settled ${hashscanTxUrl(event.settlement.transaction)}`);
           break;
         case "payment_rejected":
-          log(`reject  ${event.status} ${preview(event.body)}`);
+          log(`reject  HTTP ${event.status}: ${rejectionDetail(event.body)}`);
           break;
       }
     },
@@ -187,7 +193,7 @@ export async function runJob(options: RunJobOptions): Promise<JobSummary> {
     throw error;
   }
   if (created.response.status !== 202 || !created.settlement?.success) {
-    throw new Error(`job was not accepted: HTTP ${created.response.status} ${preview(created.body)}`);
+    throw new Error(`job was not accepted: HTTP ${created.response.status}: ${rejectionDetail(created.body)}`);
   }
 
   const { jobId } = created.body as { jobId: string };
@@ -217,7 +223,7 @@ export async function runJob(options: RunJobOptions): Promise<JobSummary> {
             log(`tick    ${payments.length} paid at ${view.wallClockS?.toFixed(1)}s, ${payments.length * offer.tickSeconds}s covered`);
             continue;
           }
-          log(`tick    not paid: HTTP ${tick.response.status} ${preview(tick.body)}`);
+          log(`tick    not paid: HTTP ${tick.response.status}: ${rejectionDetail(tick.body)}`);
         } catch (error) {
           log(`tick    payment error: ${error instanceof Error ? error.message : error}`);
         }
