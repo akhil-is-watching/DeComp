@@ -6,11 +6,18 @@ export type TopicMessage = {
   message: string;
   payer_account_id: string;
   sequence_number: number;
-  topic_id: string;
-  chunk_info?: { number: number; total: number } | null;
+  topic_id?: string;
+  chunk_info?: {
+    initial_transaction_id: { account_id: string; transaction_valid_start: string; nonce?: number };
+    number: number;
+    total: number;
+  } | null;
 };
 
 export type TopicQuery = { network?: HederaNetwork; afterTimestamp?: string };
+
+/** A decoded JSON message, attributed to the account that paid for it. */
+export type JsonMessage = { payload: unknown; consensusTimestamp: string; sequenceNumber: number; payerAccountId: string };
 
 /** Every message on a topic in consensus order, following mirror-node pagination. */
 export async function fetchTopicMessages(topicId: string, { network, afterTimestamp }: TopicQuery = {}): Promise<TopicMessage[]> {
@@ -25,27 +32,61 @@ export async function fetchTopicMessages(topicId: string, { network, afterTimest
   return messages;
 }
 
-/** Decodes a single-chunk JSON message; anything else decodes to null. */
-export function decodeJsonMessage(message: TopicMessage): unknown {
-  if (message.chunk_info && message.chunk_info.total > 1) return null;
-  try {
-    return JSON.parse(Buffer.from(message.message, "base64").toString("utf8"));
-  } catch {
-    return null;
+/**
+ * Decodes messages as JSON, joining the chunks HCS splits messages over 1KB into. A message
+ * takes the timestamp and sequence number of its last chunk; incomplete or non-JSON messages are
+ * skipped.
+ */
+export function decodeJsonMessages(messages: TopicMessage[]): JsonMessage[] {
+  const decoded: JsonMessage[] = [];
+  const pending = new Map<string, TopicMessage[]>();
+
+  for (const message of messages) {
+    let parts = [message];
+    const info = message.chunk_info;
+    if (info && info.total > 1) {
+      const id = info.initial_transaction_id;
+      const key = `${id.account_id}@${id.transaction_valid_start}#${id.nonce ?? 0}`;
+      parts = [...(pending.get(key) ?? []), message];
+      if (parts.length < info.total) {
+        pending.set(key, parts);
+        continue;
+      }
+      pending.delete(key);
+      parts.sort((a, b) => (a.chunk_info?.number ?? 0) - (b.chunk_info?.number ?? 0));
+    }
+
+    const last = parts[parts.length - 1]!;
+    try {
+      const text = Buffer.concat(parts.map(p => Buffer.from(p.message, "base64"))).toString("utf8");
+      decoded.push({
+        payload: JSON.parse(text),
+        consensusTimestamp: last.consensus_timestamp,
+        sequenceNumber: last.sequence_number,
+        payerAccountId: parts[0]!.payer_account_id,
+      });
+    } catch {
+      // not JSON; ignore
+    }
   }
+  return decoded;
+}
+
+export async function readJsonMessages(topicId: string, query: TopicQuery = {}): Promise<JsonMessage[]> {
+  return decodeJsonMessages(await fetchTopicMessages(topicId, query));
 }
 
 /** All well-formed registrations on the topic. Use `currentRegistrations` to authenticate and dedupe. */
 export async function readRegistry(topicId: string, query: TopicQuery = {}): Promise<RegistryEntry[]> {
   const entries: RegistryEntry[] = [];
-  for (const message of await fetchTopicMessages(topicId, query)) {
-    const registration = parseRegistration(decodeJsonMessage(message));
+  for (const message of await readJsonMessages(topicId, query)) {
+    const registration = parseRegistration(message.payload);
     if (registration) {
       entries.push({
         ...registration,
-        consensusTimestamp: message.consensus_timestamp,
-        sequenceNumber: message.sequence_number,
-        payerAccountId: message.payer_account_id,
+        consensusTimestamp: message.consensusTimestamp,
+        sequenceNumber: message.sequenceNumber,
+        payerAccountId: message.payerAccountId,
       });
     }
   }
