@@ -29,6 +29,8 @@ export type MeteredJob = {
   createdAt: string;
   state: JobState;
   payments: Payment[];
+  /** Tick payments verified but not yet settled; the job isn't reconciled or killed until they land. */
+  ticksSettling: number;
   lastRun?: RunnerJob;
   reconciliation?: Reconciliation;
 };
@@ -60,9 +62,26 @@ export class JobQueue {
   }
 
   create(init: { id: string; jobType: string; params: Record<string, unknown>; offer: Offer }): MeteredJob {
-    const job: MeteredJob = { ...init, createdAt: new Date().toISOString(), state: "awaiting_settlement", payments: [] };
+    const job: MeteredJob = {
+      ...init,
+      createdAt: new Date().toISOString(),
+      state: "awaiting_settlement",
+      payments: [],
+      ticksSettling: 0,
+    };
     this.jobs.set(job.id, job);
     return job;
+  }
+
+  /** Call once a tick payment has verified and before it settles. */
+  beginTickSettlement(id: string): void {
+    this.require(id).ticksSettling++;
+  }
+
+  /** Call when that settlement has succeeded (after recordPayment) or failed. */
+  endTickSettlement(id: string): void {
+    const job = this.require(id);
+    job.ticksSettling = Math.max(0, job.ticksSettling - 1);
   }
 
   get(id: string): MeteredJob | undefined {
@@ -130,6 +149,9 @@ export class JobQueue {
         }
         job.lastRun = run;
         if (job.state === "awaiting_settlement") continue;
+
+        // A tick that verified in time but is still settling must count before billing or killing.
+        if (job.ticksSettling > 0) continue;
 
         if (TERMINAL_STATUSES.has(run.status)) {
           this.reconcile(job, run);

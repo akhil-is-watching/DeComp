@@ -86,13 +86,23 @@ try {
       `${ids.size} tick settlements, mirror: ${summary.payments.map(p => p.mirror?.result).join(", ")}`,
     );
 
+    // The provider's own billing record, which must count every tick the agent paid, including one
+    // that was still settling when the job finished.
+    let billed: { paidTicks: number; ticksUsed: number } | undefined;
+    for (let attempt = 0; attempt < 20 && !billed; attempt++) {
+      const view = (await (await fetch(`${providerUrl}/jobs/${summary.jobId}`)).json()) as { reconciliation?: typeof billed };
+      billed = view.reconciliation;
+      if (!billed) await Bun.sleep(500);
+    }
     const logged = await runnerLogEntry(summary.jobId);
     const used = logged ? Math.max(1, Math.ceil(logged.wall_clock_s / TICK_SECONDS)) : NaN;
     gate.record(
       "billed ticks match the runner's measured wall-clock within ±1 tick",
-      logged !== undefined && Math.abs(summary.paidTicks - used) <= 1 && summary.paidTicks === summary.payments.length,
+      logged !== undefined && billed !== undefined && billed.paidTicks === summary.payments.length && Math.abs(billed.paidTicks - used) <= 1,
       logged
-        ? `runner logged ${logged.wall_clock_s}s → ${used} ticks used; provider billed ${summary.paidTicks}, agent paid ${summary.payments.length}`
+        ? `runner logged ${logged.wall_clock_s}s → ${used} ticks used; provider reconciled ` +
+            (billed ? `${billed.paidTicks} paid vs ${billed.ticksUsed} used` : "nothing") +
+            `; agent paid ${summary.payments.length}`
         : "no job_finished line in logs/job-runner.log",
     );
   } catch (error) {

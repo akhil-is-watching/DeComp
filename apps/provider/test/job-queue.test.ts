@@ -141,3 +141,30 @@ describe("tick refusals", () => {
     expect(queue.tickRefusal(queue.get("j")!)).toBe("job is killed_unpaid");
   });
 });
+
+describe("ticks still settling", () => {
+  test("a job that ends while a tick settles is reconciled only once the tick lands", async () => {
+    paidJob("j", 2);
+    queue.beginTickSettlement("j");
+    runner.set("j", 12.06, "succeeded");
+    await queue.sweep();
+    expect(queue.get("j")!.reconciliation).toBeUndefined();
+
+    queue.recordPayment("j", { transaction: "0.0.1@9.0" });
+    queue.endTickSettlement("j");
+    await queue.sweep();
+    expect(queue.get("j")!.reconciliation).toEqual({ wallClockS: 12.06, paidTicks: 3, ticksUsed: 3, deltaTicks: 0 });
+  });
+
+  test("a job is not killed while a verified tick is settling", async () => {
+    paidJob("j", 1);
+    queue.beginTickSettlement("j");
+    runner.set("j", 10.5);
+    await queue.sweep();
+    expect(runner.cancelled).toEqual([]);
+
+    queue.endTickSettlement("j"); // settlement failed; nothing was recorded
+    await queue.sweep();
+    expect(runner.cancelled).toEqual(["j"]);
+  });
+});

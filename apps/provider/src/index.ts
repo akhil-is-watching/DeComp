@@ -120,23 +120,31 @@ async function payTick(req: Request, id: string): Promise<Response> {
     return Response.json({ error: refusal }, { status: 409 });
   }
 
-  const outcome = await gate(req, undefined, async payment => {
-    if (!payment) {
-      return Response.json({ error: "payment required" }, { status: 402 });
-    }
-    const late = queue.tickRefusal(job);
-    if (late) {
-      return Response.json({ error: late }, { status: 409 });
-    }
-    return Response.json({ jobId: id, tick: job.payments.length + 1, tickSeconds: job.offer.tickSeconds });
-  });
+  let settling = false;
+  try {
+    const outcome = await gate(req, undefined, async payment => {
+      if (!payment) {
+        return Response.json({ error: "payment required" }, { status: 402 });
+      }
+      const late = queue.tickRefusal(job);
+      if (late) {
+        return Response.json({ error: late }, { status: 409 });
+      }
+      // Hold billing and enforcement until this verified tick settles.
+      queue.beginTickSettlement(id);
+      settling = true;
+      return Response.json({ jobId: id, tick: job.payments.length + 1, tickSeconds: job.offer.tickSeconds });
+    });
 
-  if (outcome.kind === "settled") {
-    recordSettlement(job, outcome.settlement);
-  } else if (outcome.kind === "settle_failed") {
-    console.error(`[provider] tick settlement failed for job ${id} (${outcome.errorReason})`);
+    if (outcome.kind === "settled") {
+      recordSettlement(job, outcome.settlement);
+    } else if (outcome.kind === "settle_failed") {
+      console.error(`[provider] tick settlement failed for job ${id} (${outcome.errorReason})`);
+    }
+    return outcome.response;
+  } finally {
+    if (settling) queue.endTickSettlement(id);
   }
-  return outcome.response;
 }
 
 async function getJob(id: string): Promise<Response> {
