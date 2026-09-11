@@ -1,13 +1,15 @@
 /**
  * Agent CLI: pay for one metered GPU job and print the result.
  *
- *   bun run agent -- --job mandelbrot --params '{"width": 1024}'       # route via the HCS registry
+ *   bun run agent -- --job mandelbrot --save out/mandelbrot.png        # route via the HCS registry
  *   bun run agent -- --provider http://127.0.0.1:4021 --job benchmark  # use one provider directly
  *   bun run agent -- --job benchmark --budget-hbar 0.2                  # stop paying after 0.2 ℏ
  *   bun run agent -- --provider http://127.0.0.1:4021 --asset 0.0.123 --max-amount 50   # pay in an HTS token
  *
  * Each finished job is recorded on AUDIT_TOPIC_ID (or --audit-topic) when set.
  */
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { parseArgs } from "node:util";
 import { HBAR_ASSET, accountFromEnv, hbarToTinybars } from "@decomp/hedera-x402";
 import { discoverAndRunJob } from "./route-job";
@@ -27,6 +29,8 @@ const { values } = parseArgs({
     "max-amount": { type: "string" },
     "max-hbar": { type: "string", default: "1" },
     "audit-topic": { type: "string" },
+    // Write an image result (mandelbrot) to this path.
+    save: { type: "string" },
     "skip-mirror": { type: "boolean", default: false },
     json: { type: "boolean", default: false },
   },
@@ -95,6 +99,17 @@ try {
       throw new Error("the registry lists HBAR prices only; pass --provider to pay in an HTS token");
     }
     ({ summary } = await discoverAndRunJob({ ...common, topicId }));
+  }
+
+  if (values.save) {
+    const png = (summary.result as { png_base64?: string } | undefined)?.png_base64;
+    if (png) {
+      mkdirSync(dirname(values.save), { recursive: true });
+      writeFileSync(values.save, Buffer.from(png, "base64"));
+      log(`saved   ${values.save}`);
+    } else {
+      log("saved   nothing: this job returned no image");
+    }
   }
 
   if (values.json) console.log(JSON.stringify(summary));
