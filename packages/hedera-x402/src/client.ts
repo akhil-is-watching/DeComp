@@ -63,7 +63,14 @@ export function createPayingClient(options: PayingClientOptions) {
   const http = new x402HTTPClient(client);
   const emit = options.onEvent ?? (() => {});
 
-  async function request(url: string, init: RequestInit = {}): Promise<PaidResponse> {
+  async function request(
+    url: string,
+    init: RequestInit = {},
+    hooks: {
+      /** Runs on the 402 before anything is signed; throw to refuse the payment. */
+      beforeSign?: (paymentRequired: PaymentRequired) => void | Promise<void>;
+    } = {},
+  ): Promise<PaidResponse> {
     const challenge = await fetch(url, init);
     const challengeBody = await readBody(challenge);
     if (challenge.status !== 402) {
@@ -72,6 +79,7 @@ export function createPayingClient(options: PayingClientOptions) {
 
     const paymentRequired = http.getPaymentRequiredResponse(name => challenge.headers.get(name), challengeBody);
     emit({ type: "payment_required", url, paymentRequired });
+    await hooks.beforeSign?.(paymentRequired);
 
     const payload = await http.createPaymentPayload(paymentRequired);
     emit({
