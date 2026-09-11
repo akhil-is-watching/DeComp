@@ -16,6 +16,7 @@
     "agent": "bun apps/agent/src/index.ts",
     "validate:phase1": "bun scripts/validate-phase1.ts",
     "validate:phase2": "bun scripts/validate-phase2.ts",
+    "validate:phase3": "bun scripts/validate-phase3.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
