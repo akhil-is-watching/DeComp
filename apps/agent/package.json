@@ -4,12 +4,13 @@
   "type": "module",
   "private": true,
   "exports": {
-    ".": "./src/run-job.ts"
+    ".": "./src/lib.ts"
   },
   "scripts": {
     "start": "bun src/index.ts"
   },
   "dependencies": {
+    "@decomp/hcs-registry": "workspace:*",
     "@decomp/hedera-x402": "workspace:*"
   }
 }

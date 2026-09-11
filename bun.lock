@@ -20,6 +20,7 @@
       "name": "@decomp/agent",
       "version": "0.1.0",
       "dependencies": {
+        "@decomp/hcs-registry": "workspace:*",
         "@decomp/hedera-x402": "workspace:*",
       },
     },
@@ -27,8 +28,17 @@
       "name": "@decomp/provider",
       "version": "0.1.0",
       "dependencies": {
+        "@decomp/hcs-registry": "workspace:*",
         "@decomp/hedera-x402": "workspace:*",
         "@x402/core": "2.25.0",
+      },
+    },
+    "packages/hcs-registry": {
+      "name": "@decomp/hcs-registry",
+      "version": "0.1.0",
+      "dependencies": {
+        "@decomp/hedera-x402": "workspace:*",
+        "@hiero-ledger/sdk": "2.85.0",
       },
     },
     "packages/hedera-x402": {
@@ -80,6 +90,8 @@
     "@babel/types": ["@babel/types@7.29.8", "", { "dependencies": { "@babel/helper-string-parser": "^7.29.7", "@babel/helper-validator-identifier": "^7.29.7" } }, "sha512-Vj1jF3cPfxg7OAfoI7QnVKLoILlm2JF9pnVHrX8qx7AHMiYWT+NDAA7jChlNgRS4WTLc/fD1lXLmPixluj+3Gg=="],
 
     "@decomp/agent": ["@decomp/agent@workspace:apps/agent"],
+
+    "@decomp/hcs-registry": ["@decomp/hcs-registry@workspace:packages/hcs-registry"],
 
     "@decomp/hedera-x402": ["@decomp/hedera-x402@workspace:packages/hedera-x402"],
 

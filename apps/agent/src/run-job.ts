@@ -6,13 +6,17 @@ import {
   waitForMirrorTransaction,
   type AccountCredentials,
 } from "@decomp/hedera-x402";
+import { ProviderUnavailableError } from "./router";
 
 export type RunJobOptions = {
   providerUrl: string;
   jobType: string;
   params: Record<string, unknown>;
   account: AccountCredentials;
+  /** Largest single payment the agent will sign, in tinybars. */
   maxTinybarsPerPayment: bigint;
+  /** Account the provider must be paid at, e.g. from its registry entry. */
+  expectedAccount?: string;
   confirmOnMirror?: boolean;
   pollIntervalMs?: number;
   timeoutMs?: number;
@@ -38,17 +42,36 @@ type ProviderJobView = { status: string; state: string; wallClockS?: number; res
 
 const TERMINAL = new Set(["succeeded", "failed", "killed", "timeout", "cancelled"]);
 
+/** JSON with long strings (e.g. base64 images) elided, for log lines. */
+function preview(value: unknown): string {
+  return JSON.stringify(value, (_, v) => (typeof v === "string" && v.length > 120 ? `<${v.length} chars>` : v));
+}
+
+async function fetchInfo(base: string): Promise<ProviderInfo> {
+  try {
+    const res = await fetch(`${base}/info`, { signal: AbortSignal.timeout(5_000) });
+    if (!res.ok) throw new Error(`GET /info returned ${res.status}`);
+    return (await res.json()) as ProviderInfo;
+  } catch (error) {
+    throw new ProviderUnavailableError(base, error);
+  }
+}
+
 export async function runJob(options: RunJobOptions): Promise<JobSummary> {
   const log = options.log ?? console.log;
   const base = options.providerUrl.replace(/\/$/, "");
 
-  const info = (await (await fetch(`${base}/info`, { signal: AbortSignal.timeout(5_000) })).json()) as ProviderInfo;
+  const info = await fetchInfo(base);
+  if (options.expectedAccount && info.account !== options.expectedAccount) {
+    throw new ProviderUnavailableError(base, new Error(`serves account ${info.account}, expected ${options.expectedAccount}`));
+  }
   const offer = info.offers.find(o => o.jobType === options.jobType);
   if (!offer) {
-    throw new Error(`${info.name} does not offer ${options.jobType} (offers: ${info.offers.map(o => o.jobType).join(", ")})`);
+    throw new ProviderUnavailableError(base, new Error(`${info.name} does not offer ${options.jobType}`));
   }
   log(`quote   ${info.name} ${info.account} charges ${formatTinybars(offer.priceTinybars)} for ${options.jobType}`);
 
+  let signed = false;
   const client = createPayingClient({
     account: options.account,
     maxTinybarsPerPayment: options.maxTinybarsPerPayment,
@@ -60,25 +83,46 @@ export async function runJob(options: RunJobOptions): Promise<JobSummary> {
           break;
         }
         case "payment_signed":
+          signed = true;
           log(`signed  TransferTransaction ${event.transactionId} by ${event.payer}`);
           break;
         case "payment_settled":
           log(`settled ${hashscanTxUrl(event.settlement.transaction)}`);
           break;
         case "payment_rejected":
-          log(`reject  ${event.status} ${JSON.stringify(event.body)}`);
+          log(`reject  ${event.status} ${preview(event.body)}`);
           break;
       }
     },
   });
 
-  const { response, body, settlement } = await client.request(`${base}/jobs`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ jobType: options.jobType, params: options.params }),
-  });
+  let paid: Awaited<ReturnType<typeof client.request>>;
+  try {
+    paid = await client.request(
+      `${base}/jobs`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jobType: options.jobType, params: options.params }),
+      },
+      {
+        beforeSign: paymentRequired => {
+          const wrongPayee = paymentRequired.accepts.find(a => a.payTo !== info.account);
+          if (wrongPayee) {
+            throw new Error(`402 asks for payment to ${wrongPayee.payTo}, but the provider account is ${info.account}`);
+          }
+        },
+      },
+    );
+  } catch (error) {
+    // Nothing was signed yet, so trying another provider can't double-pay.
+    if (!signed) throw new ProviderUnavailableError(base, error);
+    throw error;
+  }
+
+  const { response, body, settlement } = paid;
   if (response.status !== 202 || !settlement?.success) {
-    throw new Error(`job was not accepted: HTTP ${response.status} ${JSON.stringify(body)}`);
+    throw new Error(`job was not accepted: HTTP ${response.status} ${preview(body)}`);
   }
   const { jobId } = body as { jobId: string };
   log(`running job ${jobId}`);
@@ -91,7 +135,7 @@ export async function runJob(options: RunJobOptions): Promise<JobSummary> {
     if (Date.now() > deadline) throw new Error(`job ${jobId} did not finish in time`);
     await Bun.sleep(options.pollIntervalMs ?? 1_000);
   }
-  log(`result  ${view.status} after ${view.wallClockS}s ${view.error ? `error=${view.error}` : JSON.stringify(view.result)}`);
+  log(`result  ${view.status} after ${view.wallClockS}s ${view.error ? `error=${view.error}` : preview(view.result)}`);
 
   const summary: JobSummary = {
     jobId,
