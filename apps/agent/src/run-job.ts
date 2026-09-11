@@ -1,6 +1,6 @@
 /**
  * Agent job flow: quote → pay the first tick (x402) → keep paying a tick just before each paid
- * window runs out → result. The agent can stop paying at a budget ceiling;
+ * window runs out → result → audit record on HCS. The agent can stop paying at a budget ceiling;
  * the provider then stops the job itself.
  */
 import {
@@ -12,6 +12,7 @@ import {
   waitForMirrorTransaction,
   type AccountCredentials,
 } from "@decomp/hedera-x402";
+import { publishJobAudit } from "./audit";
 import { ProviderUnavailableError } from "./router";
 
 export type RunJobOptions = {
@@ -29,6 +30,8 @@ export type RunJobOptions = {
   tickLeadSeconds?: number;
   /** Account the provider must be paid at, e.g. from its registry entry. */
   expectedAccount?: string;
+  /** HCS topic that receives the job's audit record once it ends. */
+  auditTopicId?: string;
   confirmOnMirror?: boolean;
   pollIntervalMs?: number;
   timeoutMs?: number;
@@ -64,6 +67,7 @@ export type JobSummary = {
   wallClockS?: number;
   result?: unknown;
   error?: string;
+  audit?: { topicId: string; sequenceNumber: number; transactionId: string };
 };
 
 type ProviderPrice = { asset: string; perSecond: string; tickAmount: string; label: string };
@@ -256,5 +260,15 @@ export async function runJob(options: RunJobOptions): Promise<JobSummary> {
     result: view.result,
     error: view.error,
   };
+
+  if (options.auditTopicId) {
+    try {
+      const published = await publishJobAudit(options.auditTopicId, options.account, summary);
+      summary.audit = { topicId: options.auditTopicId, ...published };
+      log(`audit   recorded on HCS topic ${options.auditTopicId} (seq ${published.sequenceNumber}, tx ${published.transactionId})`);
+    } catch (error) {
+      log(`audit   publish failed: ${error instanceof Error ? error.message : error}`);
+    }
+  }
   return summary;
 }

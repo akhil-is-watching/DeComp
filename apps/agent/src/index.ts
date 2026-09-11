@@ -5,6 +5,8 @@
  *   bun run agent -- --provider http://127.0.0.1:4021 --job benchmark  # use one provider directly
  *   bun run agent -- --job benchmark --budget-hbar 0.2                  # stop paying after 0.2 ℏ
  *   bun run agent -- --provider http://127.0.0.1:4021 --asset 0.0.123 --max-amount 50   # pay in an HTS token
+ *
+ * Each finished job is recorded on AUDIT_TOPIC_ID (or --audit-topic) when set.
  */
 import { parseArgs } from "node:util";
 import { HBAR_ASSET, accountFromEnv, hbarToTinybars } from "@decomp/hedera-x402";
@@ -24,6 +26,7 @@ const { values } = parseArgs({
     // Per-payment cap when using --provider: smallest units, or HBAR with --max-hbar.
     "max-amount": { type: "string" },
     "max-hbar": { type: "string", default: "1" },
+    "audit-topic": { type: "string" },
     "skip-mirror": { type: "boolean", default: false },
     json: { type: "boolean", default: false },
   },
@@ -41,6 +44,7 @@ try {
       : values["budget-hbar"]
         ? hbarToTinybars(Number(values["budget-hbar"]))
         : undefined,
+    auditTopicId: values["audit-topic"] ?? process.env.AUDIT_TOPIC_ID,
     confirmOnMirror: !values["skip-mirror"],
     log: values.json ? () => {} : console.log,
   };
