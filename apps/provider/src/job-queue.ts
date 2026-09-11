@@ -4,10 +4,10 @@
  * whatever the agent intends. When a job ends, billed ticks are reconciled against the time the
  * runner measured.
  */
-import { tickPrice, type Offer } from "./offers";
+import { tickAmount, type AssetPrice } from "./pricing";
 import { TERMINAL_STATUSES, type RunnerClient, type RunnerJob } from "./runner-client";
 
-export type Payment = { tick: number; transaction: string; payer: string; amountTinybars: string; settledAt: string };
+export type Payment = { tick: number; transaction: string; payer: string; asset: string; amount: string; settledAt: string };
 
 export type JobState =
   /** Job started on a verified first payment that hasn't settled yet. */
@@ -24,8 +24,9 @@ export type MeteredJob = {
   id: string;
   jobType: string;
   params: Record<string, unknown>;
-  /** Price and tick length are locked when the job is created. */
-  offer: Offer;
+  tickSeconds: number;
+  /** Asset and per-second price, locked in by the payment that created the job. */
+  price: AssetPrice;
   createdAt: string;
   state: JobState;
   payments: Payment[];
@@ -36,7 +37,7 @@ export type MeteredJob = {
 };
 
 export function paidSeconds(job: MeteredJob): number {
-  return job.payments.length * job.offer.tickSeconds;
+  return job.payments.length * job.tickSeconds;
 }
 
 /** Ticks a measured runtime used; any started tick counts, and every job uses at least one. */
@@ -61,7 +62,7 @@ export class JobQueue {
     this.log = options.log ?? console.log;
   }
 
-  create(init: { id: string; jobType: string; params: Record<string, unknown>; offer: Offer }): MeteredJob {
+  create(init: { id: string; jobType: string; params: Record<string, unknown>; tickSeconds: number; price: AssetPrice }): MeteredJob {
     const job: MeteredJob = {
       ...init,
       createdAt: new Date().toISOString(),
@@ -94,7 +95,8 @@ export class JobQueue {
       tick: job.payments.length + 1,
       transaction: settlement.transaction,
       payer: settlement.payer ?? "",
-      amountTinybars: tickPrice(job.offer).toString(),
+      asset: job.price.asset,
+      amount: tickAmount(job.price, job.tickSeconds).toString(),
       settledAt: new Date().toISOString(),
     };
     job.payments.push(payment);
@@ -117,7 +119,7 @@ export class JobQueue {
     if (job.state !== "paid") return `job is ${job.state}`;
     const run = job.lastRun;
     if (run && TERMINAL_STATUSES.has(run.status)) return `job already ${run.status}`;
-    if (paidSeconds(job) - (run?.wall_clock_s ?? 0) >= 2 * job.offer.tickSeconds) {
+    if (paidSeconds(job) - (run?.wall_clock_s ?? 0) >= 2 * job.tickSeconds) {
       return "job is already paid two ticks ahead";
     }
     return undefined;
@@ -174,7 +176,7 @@ export class JobQueue {
   }
 
   private reconcile(job: MeteredJob, run: RunnerJob): void {
-    const used = ticksUsed(run.wall_clock_s, job.offer.tickSeconds);
+    const used = ticksUsed(run.wall_clock_s, job.tickSeconds);
     job.reconciliation = {
       wallClockS: run.wall_clock_s,
       paidTicks: job.payments.length,

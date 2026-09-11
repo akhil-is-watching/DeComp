@@ -1,22 +1,23 @@
 /**
  * GPU compute provider with metered billing. Creating a job (POST /jobs) pays for its first tick
- * of GPU time; each further tick is paid through POST /jobs/:id/ticks. The job queue kills any
- * job that runs past its paid time plus a grace period, so payment is enforced here rather than
- * trusted to the agent. Results are only released for jobs whose payments settled.
+ * of GPU time, in HBAR or the compute token; each further tick is paid through
+ * POST /jobs/:id/ticks. The job queue kills any job that runs past its paid time plus a grace
+ * period, so payment is enforced here rather than trusted to the agent. Results are only
+ * released for jobs whose payments settled.
  */
 import type { SettleResponse } from "@x402/core/types";
 import { REGISTRATION_SCHEMA, publishRegistration } from "@decomp/hcs-registry";
 import {
   accountFromEnv,
   fetchFacilitatorFeePayer,
-  formatTinybars,
   hashscanTxUrl,
+  isTokenAssociated,
   networkConfig,
   requireEnv,
   sdkClient,
 } from "@decomp/hedera-x402";
 import { JobQueue, paidSeconds, type MeteredJob } from "./job-queue";
-import { parseJobRequest, parseOffers, tickPrice } from "./offers";
+import { describePrice, hbarPrice, parseJobRequest, parseOffers, priceIn, tickAmount } from "./pricing";
 import { RunnerClient, RunnerError, type RunnerJob } from "./runner-client";
 import { createJobGate } from "./x402-gate";
 
@@ -27,7 +28,13 @@ const port = Number(process.env.PORT ?? 4021);
 const maxRuntimeS = Number(process.env.MAX_RUNTIME_S ?? 600);
 const tickSeconds = Number(process.env.TICK_SECONDS ?? 5);
 const graceSeconds = Number(process.env.TICK_GRACE_SECONDS ?? 5);
-const offers = parseOffers(process.env.PROVIDER_OFFERS ?? "benchmark:2000000", tickSeconds);
+const computeTokenId = process.env.COMPUTE_TOKEN_ID || undefined;
+const tokenSpec = process.env.PROVIDER_TOKEN_OFFERS || undefined;
+const offers = parseOffers(
+  process.env.PROVIDER_OFFERS ?? "benchmark:2000000",
+  tickSeconds,
+  computeTokenId && tokenSpec ? { tokenId: computeTokenId, spec: tokenSpec } : undefined,
+);
 const runner = new RunnerClient(process.env.JOB_RUNNER_URL ?? "http://127.0.0.1:8100");
 const publicUrl = process.env.PUBLIC_URL ?? `http://127.0.0.1:${port}`;
 const registryTopicId = process.env.REGISTRY_TOPIC_ID || undefined;
@@ -47,10 +54,13 @@ const gate = createJobGate({ network, payTo, providerName, offers, queue, tickSe
 function offerList() {
   return [...offers.values()].map(o => ({
     jobType: o.jobType,
-    pricePerSecTinybars: o.pricePerSecTinybars.toString(),
     tickSeconds: o.tickSeconds,
-    tickPriceTinybars: tickPrice(o).toString(),
-    price: `${formatTinybars(o.pricePerSecTinybars)}/s`,
+    prices: o.prices.map(p => ({
+      asset: p.asset,
+      perSecond: p.perSecond.toString(),
+      tickAmount: tickAmount(p, o.tickSeconds).toString(),
+      label: describePrice(p),
+    })),
   }));
 }
 
@@ -73,6 +83,11 @@ async function createJob(req: Request): Promise<Response> {
     if (!payment) {
       return Response.json({ error: "payment required" }, { status: 402 });
     }
+    const offer = offers.get(parsed.jobType)!;
+    const price = priceIn(offer, payment.requirements.asset);
+    if (!price) {
+      return Response.json({ error: `${parsed.jobType} is not priced in ${payment.requirements.asset}` }, { status: 400 });
+    }
     const id = crypto.randomUUID();
     try {
       await runner.submit({ jobId: id, jobType: parsed.jobType, params: parsed.params, maxRuntimeS });
@@ -83,10 +98,10 @@ async function createJob(req: Request): Promise<Response> {
       console.error("[provider] job runner unavailable:", error);
       return Response.json({ error: "job runner unavailable" }, { status: 503 });
     }
-    job = queue.create({ id, jobType: parsed.jobType, params: parsed.params, offer: offers.get(parsed.jobType)! });
-    console.log(`[provider] first tick verified (${payment.requirements.amount} tinybars) → started job ${id}`);
+    job = queue.create({ id, jobType: parsed.jobType, params: parsed.params, tickSeconds: offer.tickSeconds, price });
+    console.log(`[provider] first tick verified (${payment.requirements.amount} of ${price.asset}) → started job ${id}`);
     return Response.json(
-      { jobId: id, status: "running", statusUrl: `/jobs/${id}`, ticksUrl: `/jobs/${id}/ticks`, tickSeconds: job.offer.tickSeconds },
+      { jobId: id, status: "running", statusUrl: `/jobs/${id}`, ticksUrl: `/jobs/${id}/ticks`, tickSeconds: job.tickSeconds, asset: price.asset },
       { status: 202 },
     );
   });
@@ -133,7 +148,7 @@ async function payTick(req: Request, id: string): Promise<Response> {
       // Hold billing and enforcement until this verified tick settles.
       queue.beginTickSettlement(id);
       settling = true;
-      return Response.json({ jobId: id, tick: job.payments.length + 1, tickSeconds: job.offer.tickSeconds });
+      return Response.json({ jobId: id, tick: job.payments.length + 1, tickSeconds: job.tickSeconds });
     });
 
     if (outcome.kind === "settled") {
@@ -168,8 +183,10 @@ async function getJob(id: string): Promise<Response> {
     wallClockS: run?.wall_clock_s,
     startedAt: run?.started_at,
     finishedAt: run?.finished_at,
-    tickSeconds: job.offer.tickSeconds,
-    tickPriceTinybars: tickPrice(job.offer).toString(),
+    asset: job.price.asset,
+    pricePerSecond: job.price.perSecond.toString(),
+    tickSeconds: job.tickSeconds,
+    tickAmount: tickAmount(job.price, job.tickSeconds).toString(),
     paidTicks: job.payments.length,
     paidSeconds: paidSeconds(job),
     graceSeconds,
@@ -211,10 +228,9 @@ const server = Bun.serve({
 });
 
 console.log(`[provider] ${providerName} (${payTo}) listening on ${server.url}`);
-console.log(
-  `[provider] offers: ${offerList().map(o => `${o.jobType}=${o.price}`).join(", ")} ` +
-    `in ${tickSeconds}s ticks, ${graceSeconds}s grace`,
-);
+for (const offer of offerList()) {
+  console.log(`[provider] ${offer.jobType}: ${offer.prices.map(p => `${p.label}/s`).join(" or ")} in ${tickSeconds}s ticks`);
+}
 fetchFacilitatorFeePayer(network).then(
   feePayer => console.log(`[provider] facilitator ${facilitatorUrl} fee payer ${feePayer}`),
   error => console.error("[provider] facilitator unreachable:", error),
@@ -223,6 +239,16 @@ runner.health().then(
   ({ job_types }) => console.log(`[provider] job runner ok: ${Object.keys(job_types).join(", ")}`),
   () => console.error(`[provider] job runner not reachable — start it with \`bun run dev:runner\``),
 );
+if (computeTokenId && tokenSpec) {
+  // An unassociated payTo fails settlement with a generic error, so say so up front.
+  isTokenAssociated(payTo, computeTokenId).then(
+    associated =>
+      associated
+        ? console.log(`[provider] accepting compute token ${computeTokenId}`)
+        : console.error(`[provider] ${payTo} is not associated with ${computeTokenId}; run \`bun run setup:token\``),
+    error => console.error("[provider] could not check token association:", error),
+  );
+}
 
 if (registryTopicId) {
   // Published with the provider's own key: readers only trust registrations paid for by the
@@ -236,7 +262,7 @@ if (registryTopicId) {
     network,
     jobTypes: [...offers.values()].map(o => ({
       name: o.jobType,
-      pricePerSecTinybars: o.pricePerSecTinybars.toString(),
+      pricePerSecTinybars: hbarPrice(o).perSecond.toString(),
       tickSeconds: o.tickSeconds,
     })),
     publishedAt: new Date().toISOString(),

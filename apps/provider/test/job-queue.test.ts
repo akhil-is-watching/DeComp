@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { JobQueue, overdue, paidSeconds, ticksUsed, type MeteredJob } from "../src/job-queue";
-import type { Offer } from "../src/offers";
+import type { AssetPrice } from "../src/pricing";
 import type { RunnerJob, RunnerStatus } from "../src/runner-client";
 
-const offer: Offer = { jobType: "benchmark", pricePerSecTinybars: 2_000_000n, tickSeconds: 5 };
+const HBAR: AssetPrice = { asset: "0.0.0", perSecond: 2_000_000n };
 const GRACE = 5;
 
 class FakeRunner {
@@ -47,8 +47,8 @@ beforeEach(() => {
   queue = new JobQueue(runner, { graceSeconds: GRACE, log: line => logs.push(line) });
 });
 
-function paidJob(id: string, ticks: number): MeteredJob {
-  const job = queue.create({ id, jobType: "benchmark", params: {}, offer });
+function paidJob(id: string, ticks: number, price: AssetPrice = HBAR): MeteredJob {
+  const job = queue.create({ id, jobType: "benchmark", params: {}, tickSeconds: 5, price });
   for (let i = 0; i < ticks; i++) queue.recordPayment(id, { transaction: `0.0.1@${i}.0`, payer: "0.0.9" });
   return job;
 }
@@ -65,6 +65,14 @@ test("a job is overdue only past its paid time plus grace", () => {
   expect(paidSeconds(job)).toBe(10);
   expect(overdue(15, job, GRACE)).toBe(false);
   expect(overdue(15.1, job, GRACE)).toBe(true);
+});
+
+test("payments are recorded in the asset the job was created with", () => {
+  const job = paidJob("j", 2, { asset: "0.0.5005", perSecond: 5n });
+  expect(job.payments.map(p => [p.asset, p.amount])).toEqual([
+    ["0.0.5005", "25"],
+    ["0.0.5005", "25"],
+  ]);
 });
 
 describe("enforcement", () => {
@@ -85,7 +93,7 @@ describe("enforcement", () => {
   });
 
   test("a job whose first payment is still settling is never killed", async () => {
-    queue.create({ id: "j", jobType: "benchmark", params: {}, offer });
+    queue.create({ id: "j", jobType: "benchmark", params: {}, tickSeconds: 5, price: HBAR });
     runner.set("j", 60);
     await queue.sweep();
     expect(runner.cancelled).toEqual([]);
