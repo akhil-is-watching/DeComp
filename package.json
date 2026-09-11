@@ -10,6 +10,7 @@
     "check:phase0": "bun scripts/check-phase0.ts",
     "setup:hedera": "bun scripts/setup-hedera-accounts.ts",
     "setup:topics": "bun scripts/create-hcs-topics.ts",
+    "setup:token": "bun scripts/mint-compute-token.ts",
     "setup:runner": "cd services/job-runner && uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -r requirements.txt",
     "dev:runner": "cd services/job-runner && .venv/bin/python -m uvicorn app:app --host 127.0.0.1 --port 8100",
     "dev:provider": "bun apps/provider/src/index.ts",
