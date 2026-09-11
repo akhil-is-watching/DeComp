@@ -1,0 +1,15 @@
+{
+  "name": "@decomp/agent",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/run-job.ts"
+  },
+  "scripts": {
+    "start": "bun src/index.ts"
+  },
+  "dependencies": {
+    "@decomp/hedera-x402": "workspace:*"
+  }
+}

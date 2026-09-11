@@ -16,6 +16,21 @@
         "typescript": "^5",
       },
     },
+    "apps/agent": {
+      "name": "@decomp/agent",
+      "version": "0.1.0",
+      "dependencies": {
+        "@decomp/hedera-x402": "workspace:*",
+      },
+    },
+    "apps/provider": {
+      "name": "@decomp/provider",
+      "version": "0.1.0",
+      "dependencies": {
+        "@decomp/hedera-x402": "workspace:*",
+        "@x402/core": "2.25.0",
+      },
+    },
     "packages/hedera-x402": {
       "name": "@decomp/hedera-x402",
       "version": "0.1.0",
@@ -64,7 +79,11 @@
 
     "@babel/types": ["@babel/types@7.29.8", "", { "dependencies": { "@babel/helper-string-parser": "^7.29.7", "@babel/helper-validator-identifier": "^7.29.7" } }, "sha512-Vj1jF3cPfxg7OAfoI7QnVKLoILlm2JF9pnVHrX8qx7AHMiYWT+NDAA7jChlNgRS4WTLc/fD1lXLmPixluj+3Gg=="],
 
+    "@decomp/agent": ["@decomp/agent@workspace:apps/agent"],
+
     "@decomp/hedera-x402": ["@decomp/hedera-x402@workspace:packages/hedera-x402"],
+
+    "@decomp/provider": ["@decomp/provider@workspace:apps/provider"],
 
     "@grpc/grpc-js": ["@grpc/grpc-js@1.12.6", "", { "dependencies": { "@grpc/proto-loader": "^0.7.13", "@js-sdsl/ordered-map": "^4.4.2" } }, "sha512-JXUj6PI0oqqzTGvKtzOkxtpsyPRNsrmhh41TtIz/zEB6J+AUiZZ0dxWzcMwO9Ns5rmSPuMdghlTbUuqIM48d3Q=="],
 

@@ -12,6 +12,7 @@
     "setup:runner": "cd services/job-runner && uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -r requirements.txt",
     "dev:runner": "cd services/job-runner && .venv/bin/python -m uvicorn app:app --host 127.0.0.1 --port 8100",
     "dev:provider": "bun apps/provider/src/index.ts",
+    "agent": "bun apps/agent/src/index.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
