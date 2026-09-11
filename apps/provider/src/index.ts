@@ -6,6 +6,7 @@
 import { x402HTTPResourceServer, type RoutesConfig } from "@x402/core/server";
 import {
   HBAR_ASSET,
+  accountFromEnv,
   createPaymentGate,
   createResourceServer,
   fetchFacilitatorFeePayer,
@@ -13,7 +14,9 @@ import {
   hashscanTxUrl,
   networkConfig,
   requireEnv,
+  sdkClient,
 } from "@decomp/hedera-x402";
+import { REGISTRATION_SCHEMA, publishRegistration } from "@decomp/hcs-registry";
 import { parseJobRequest, parseOffers, type JobRequest } from "./offers";
 import { RunnerClient, RunnerError, type RunnerJob } from "./runner-client";
 
@@ -24,6 +27,16 @@ const port = Number(process.env.PORT ?? 4021);
 const maxRuntimeS = Number(process.env.MAX_RUNTIME_S ?? 120);
 const offers = parseOffers(process.env.PROVIDER_OFFERS ?? "benchmark:10000000");
 const runner = new RunnerClient(process.env.JOB_RUNNER_URL ?? "http://127.0.0.1:8100");
+const publicUrl = process.env.PUBLIC_URL ?? `http://127.0.0.1:${port}`;
+const registryTopicId = process.env.REGISTRY_TOPIC_ID || undefined;
+
+type RegistrationState = {
+  status: "disabled" | "pending" | "published" | "failed";
+  sequenceNumber?: number;
+  transactionId?: string;
+  error?: string;
+};
+let registration: RegistrationState = { status: registryTopicId ? "pending" : "disabled" };
 
 type Payment = { transaction: string; payer: string; amount: string; asset: string; settledAt: string };
 type ProviderJob = JobRequest & {
@@ -157,7 +170,16 @@ const server = Bun.serve({
       },
     },
     "/info": {
-      GET: () => Response.json({ name: providerName, account: payTo, network, facilitator: facilitatorUrl, offers: offerList() }),
+      GET: () =>
+        Response.json({
+          name: providerName,
+          account: payTo,
+          endpoint: publicUrl,
+          network,
+          facilitator: facilitatorUrl,
+          offers: offerList(),
+          registry: { topicId: registryTopicId, ...registration },
+        }),
     },
     "/jobs": { POST: createJob },
     "/jobs/:id": { GET: req => getJob(req.params.id) },
@@ -175,3 +197,29 @@ runner.health().then(
   ({ job_types }) => console.log(`[provider] job runner ok: ${Object.keys(job_types).join(", ")}`),
   () => console.error(`[provider] job runner not reachable — start it with \`bun run dev:runner\``),
 );
+
+if (registryTopicId) {
+  // Published with the provider's own key: readers only trust registrations paid for by the
+  // account they advertise.
+  const client = sdkClient(accountFromEnv(providerName), network);
+  publishRegistration(client, registryTopicId, {
+    schema: REGISTRATION_SCHEMA,
+    providerId: providerName,
+    hederaAccount: payTo,
+    endpoint: publicUrl,
+    network,
+    jobTypes: [...offers.values()].map(o => ({ name: o.jobType, priceTinybars: o.priceTinybars.toString() })),
+    publishedAt: new Date().toISOString(),
+  })
+    .then(
+      ({ sequenceNumber, transactionId }) => {
+        registration = { status: "published", sequenceNumber, transactionId };
+        console.log(`[provider] registered on HCS topic ${registryTopicId} (seq ${sequenceNumber}, tx ${transactionId})`);
+      },
+      error => {
+        registration = { status: "failed", error: error instanceof Error ? error.message : String(error) };
+        console.error("[provider] registry publish failed:", error);
+      },
+    )
+    .finally(() => client.close());
+}

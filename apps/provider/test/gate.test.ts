@@ -19,7 +19,8 @@ let stop = () => {};
 beforeAll(async () => {
   ({ stop } = await ensureServices([
     runnerService(),
-    providerService("PROVIDER_1", PORT, { PROVIDER_1_ACCOUNT_ID: PAY_TO, PROVIDER_OFFERS: "benchmark:10000000" }),
+    // No registry: this provider's payTo is a placeholder, so it must not advertise itself.
+    providerService("PROVIDER_1", PORT, { PROVIDER_1_ACCOUNT_ID: PAY_TO, PROVIDER_OFFERS: "benchmark:10000000", REGISTRY_TOPIC_ID: "" }),
   ]));
 });
 afterAll(() => stop());
