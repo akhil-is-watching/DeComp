@@ -1,0 +1,17 @@
+{
+  "name": "@decomp/privy-hedera",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@decomp/hedera-x402": "workspace:*",
+    "@hiero-ledger/sdk": "2.85.0",
+    "@noble/curves": "^1.8.1",
+    "@noble/hashes": "^1.3.2",
+    "@x402/core": "2.25.0",
+    "@x402/hedera": "2.25.0"
+  }
+}
