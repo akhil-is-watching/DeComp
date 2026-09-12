@@ -1,6 +1,6 @@
 /**
  * Tests the Privy-backed Hedera signer against a stubbed Privy API, so they need no credentials.
- * The stub holds a local ECDSA key and signs the way Privy does: secp256k1 over a keccak256 digest.
+ * The stub holds a local ECDSA key and signs the digest it is given, as `secp256k1_sign` does.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { PrivateKey, Transaction, TransferTransaction } from "@hiero-ledger/sdk";
@@ -17,8 +17,8 @@ const otherKey = PrivateKey.generateECDSA();
 const address = evmAddressOf(walletKey.publicKey);
 
 type Mode = "compact" | "recoverable" | "highS" | "wrongKey";
-type StubParams = { hash?: string; bytes?: string; encoding?: string; hash_function?: string };
-type StubRequest = { path: string; method: string; authorization: string | null; appId: string | null; params?: StubParams };
+type StubBody = { method?: string; params?: { hash?: string } };
+type StubRequest = { path: string; method: string; authorization: string | null; appId: string | null; body?: StubBody };
 
 let mode: Mode = "compact";
 let reportPublicKey = true;
@@ -29,7 +29,7 @@ function stubSign(digest: Uint8Array): string {
   const signed = secp256k1.sign(digest, raw);
   const signature = mode === "highS" ? new secp256k1.Signature(signed.r, secp256k1.CURVE.n - signed.s) : signed;
   const compact = Buffer.from(signature.toCompactRawBytes());
-  const bytes = mode === "recoverable" ? Buffer.concat([compact, Buffer.from([27])]) : compact;
+  const bytes = mode === "recoverable" ? Buffer.concat([compact, Buffer.from([28])]) : compact;
   return `0x${bytes.toString("hex")}`;
 }
 
@@ -39,13 +39,13 @@ beforeAll(() => {
     port: 0,
     async fetch(req) {
       const url = new URL(req.url);
-      const body = req.method === "POST" ? ((await req.json()) as { params?: StubParams }) : undefined;
+      const body = req.method === "POST" ? ((await req.json()) as StubBody) : undefined;
       requests.push({
         path: url.pathname,
         method: req.method,
         authorization: req.headers.get("authorization"),
         appId: req.headers.get("privy-app-id"),
-        params: body?.params,
+        body,
       });
 
       const wallet = {
@@ -56,12 +56,9 @@ beforeAll(() => {
       };
       if (url.pathname === "/v1/wallets" && req.method === "POST") return Response.json(wallet);
       if (url.pathname === "/v1/wallets/wal_1" && req.method === "GET") return Response.json(wallet);
-      if (url.pathname === "/v1/wallets/wal_1/raw_sign" && body?.params) {
-        const { hash, bytes } = body.params;
-        const digest = hash
-          ? Uint8Array.from(Buffer.from(hash.replace(/^0x/, ""), "hex"))
-          : keccak_256(Uint8Array.from(Buffer.from(bytes ?? "", "hex")));
-        return Response.json({ method: "raw_sign", data: { signature: stubSign(digest), encoding: "hex" } });
+      if (url.pathname === "/v1/wallets/wal_1/rpc" && body?.method === "secp256k1_sign" && body.params?.hash) {
+        const digest = Uint8Array.from(Buffer.from(body.params.hash.replace(/^0x/, ""), "hex"));
+        return Response.json({ method: "secp256k1_sign", data: { signature: stubSign(digest), encoding: "hex" } });
       }
       return new Response("wallet not found", { status: 404 });
     },
@@ -76,6 +73,7 @@ beforeEach(() => {
 
 const privy = () => new PrivyClient({ appId: "app-id", appSecret: "app-secret", baseUrl: `http://127.0.0.1:${server.port}` });
 const wallet = (): PrivyHederaWallet => ({ walletId: "wal_1", accountId: "0.0.1001", publicKey: walletKey.publicKey });
+const signRequests = () => requests.filter(r => r.path.endsWith("/rpc"));
 
 const requirements = (overrides: Partial<PaymentRequirements> = {}): PaymentRequirements =>
   ({
@@ -96,14 +94,12 @@ describe("PrivyClient", () => {
     expect(requests[0]!.appId).toBe("app-id");
   });
 
-  test("asks Privy to hash Hedera bytes with keccak256", async () => {
+  test("hashes Hedera bytes with keccak256 and signs the digest through secp256k1_sign", async () => {
     const message = new TextEncoder().encode("hedera body bytes");
     const signature = await privy().signHederaBytes("wal_1", message);
-    expect(requests.at(-1)!.params).toEqual({
-      bytes: Buffer.from(message).toString("hex"),
-      encoding: "hex",
-      hash_function: "keccak256",
-    });
+    const sent = signRequests().at(-1)!.body!;
+    expect(sent.method).toBe("secp256k1_sign");
+    expect(sent.params!.hash).toBe(`0x${Buffer.from(keccak_256(message)).toString("hex")}`);
     expect(walletKey.publicKey.verify(message, signature)).toBe(true);
   });
 
@@ -178,7 +174,7 @@ describe("x402 payment signing", () => {
   test("signs once per node body", async () => {
     const signer = createPrivyClientHederaSigner(privy(), wallet(), { nodeCount: 2 });
     await signer.createPartiallySignedTransferTransaction(requirements());
-    expect(requests.filter(r => r.path.endsWith("/raw_sign"))).toHaveLength(2);
+    expect(signRequests()).toHaveLength(2);
   });
 
   test("refuses a signature the account's key doesn't match", async () => {

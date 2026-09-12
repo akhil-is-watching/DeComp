@@ -3,8 +3,12 @@
  *
  * Only the handful of endpoints this project needs, over `fetch`, so no key material and no
  * extra SDK ever enters the process: wallets live in Privy and sign inside its TEE.
+ *
+ * Signing goes through the wallet RPC method `secp256k1_sign`, which signs a digest along the
+ * curve. (The `/raw_sign` endpoint is for other chain types and rejects `ethereum` wallets.)
  */
 import { secp256k1 } from "@noble/curves/secp256k1";
+import { keccak_256 } from "@noble/hashes/sha3";
 
 export type PrivyConfig = {
   appId: string;
@@ -21,7 +25,7 @@ export type PrivyWallet = {
   id: string;
   address: string;
   chain_type: string;
-  /** secp256k1 public key, hex. Absent on older wallets; recover it from a signature instead. */
+  /** Compressed secp256k1 public key, hex. Absent on some wallets; recover it from a signature instead. */
   public_key?: string | null;
   display_name?: string | null;
   external_id?: string | null;
@@ -97,23 +101,18 @@ export class PrivyClient {
     return this.request<PrivyWallet>("GET", `/v1/wallets/${encodeURIComponent(walletId)}`);
   }
 
-  /** Signs `bytes` the way Hedera does for ECDSA keys: secp256k1 over their keccak256 digest. */
-  async signHederaBytes(walletId: string, bytes: Uint8Array): Promise<Uint8Array> {
-    const { data } = await this.request<{ data: { signature: string; encoding: string } }>(
+  /** Signs a digest along the secp256k1 curve, with no message prefix of any kind. */
+  async signHash(walletId: string, hash: Uint8Array): Promise<Uint8Array> {
+    const { data } = await this.request<{ data: { signature: string; encoding?: string } }>(
       "POST",
-      `/v1/wallets/${encodeURIComponent(walletId)}/raw_sign`,
-      { params: { bytes: Buffer.from(bytes).toString("hex"), encoding: "hex", hash_function: "keccak256" } },
+      `/v1/wallets/${encodeURIComponent(walletId)}/rpc`,
+      { method: "secp256k1_sign", params: { hash: `0x${Buffer.from(hash).toString("hex")}` } },
     );
     return normalizeSignature(data.signature);
   }
 
-  /** Signs a digest that is already hashed, e.g. to recover a wallet's public key. */
-  async signHash(walletId: string, hash: Uint8Array): Promise<Uint8Array> {
-    const { data } = await this.request<{ data: { signature: string; encoding: string } }>(
-      "POST",
-      `/v1/wallets/${encodeURIComponent(walletId)}/raw_sign`,
-      { params: { hash: `0x${Buffer.from(hash).toString("hex")}` } },
-    );
-    return normalizeSignature(data.signature);
+  /** Signs `bytes` the way Hedera does for ECDSA keys: secp256k1 over their keccak256 digest. */
+  signHederaBytes(walletId: string, bytes: Uint8Array): Promise<Uint8Array> {
+    return this.signHash(walletId, keccak_256(bytes));
   }
 }
