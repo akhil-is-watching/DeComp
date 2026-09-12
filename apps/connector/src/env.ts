@@ -1,11 +1,6 @@
 /** Connector configuration, read once at startup. */
 import { requireEnv } from "@decomp/hedera-x402";
 
-/** A PEM key can't hold a literal newline in .env; store it with `\n` escapes and unescape here. */
-function requirePem(name: string): string {
-  return requireEnv(name).replace(/\\n/g, "\n");
-}
-
 export const env = {
   port: Number(process.env.CONNECTOR_PORT ?? 4030),
   // The public origin Claude and the login page redirect back to; override with a tunnel URL
@@ -14,8 +9,11 @@ export const env = {
   dbPath: process.env.CONNECTOR_DB_PATH ?? new URL("../data/connector.sqlite", import.meta.url).pathname,
 
   privyAppId: requireEnv("PRIVY_APP_ID"),
-  get privyVerificationKey(): string {
-    return requirePem("PRIVY_VERIFICATION_KEY");
+  // The app's JWKS endpoint, for verifying its access tokens — derived from the app id, since
+  // that's Privy's fixed URL shape (dashboard → App settings → Basics → JWKS Endpoint). Overridable
+  // for tests, or if Privy ever changes the shape before this key rotates.
+  get privyJwksUrl(): string {
+    return process.env.PRIVY_JWKS_URL || `https://auth.privy.io/api/v1/apps/${this.privyAppId}/jwks.json`;
   },
   get tokenSecret(): string {
     return requireEnv("CONNECTOR_TOKEN_SECRET");

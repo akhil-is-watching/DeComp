@@ -1,13 +1,13 @@
 /**
  * The full authorization_code + PKCE + refresh_token dance, against a fake Privy login (a
- * self-signed ES256 token verified with a throwaway keypair set as PRIVY_VERIFICATION_KEY) so no
- * real Privy dashboard credential is needed to test the OAuth mechanics. The test DID is
- * pre-cached against the real AGENT wallet/account so the one real network call this test makes
- * (`privy.getWallet`) is a cheap, read-only lookup of a wallet that already exists — no new wallet
- * or Hedera account is created, and nothing is spent.
+ * self-signed ES256 token, verified against a locally stubbed JWKS endpoint) so no real Privy
+ * dashboard credential is needed to test the OAuth mechanics. The test DID is pre-cached against
+ * the real AGENT wallet/account so the one real network call this test makes (`privy.getWallet`)
+ * is a cheap, read-only lookup of a wallet that already exists — no new wallet or Hedera account
+ * is created, and nothing is spent.
  */
 import { describe, expect, test } from "bun:test";
-import { exportSPKI, generateKeyPair, SignJWT } from "jose";
+import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { challengeFromVerifier } from "../src/oauth/pkce";
 import { randomToken } from "../src/oauth/random";
 import { authorizeCallback } from "../src/oauth/authorize";
@@ -15,16 +15,18 @@ import { registerClient } from "../src/oauth/register";
 import { tokenEndpoint } from "../src/oauth/token";
 import { putUser } from "../src/db";
 
-// privy-verify.ts caches the imported verification key for the process's lifetime (correct in
-// production, where it's static) — so every fake login in this file signs against the same
-// keypair, set once, rather than each minting its own that a cached import would never pick up.
+// privy-verify.ts caches its JWKS fetcher for the configured URL for the process's lifetime
+// (correct in production, where it's static) — so this stub is started once, and every fake login
+// in this file signs against the same keypair a cached fetcher would actually pick up.
 const privyTestKeys = await generateKeyPair("ES256");
-process.env.PRIVY_VERIFICATION_KEY = await exportSPKI(privyTestKeys.publicKey);
+const testJwk = { ...(await exportJWK(privyTestKeys.publicKey)), kid: "test-key", alg: "ES256", use: "sig" };
+const jwksStub = Bun.serve({ port: 0, fetch: () => Response.json({ keys: [testJwk] }) });
+process.env.PRIVY_JWKS_URL = `http://127.0.0.1:${jwksStub.port}/jwks.json`;
 
 async function fakePrivyLogin(): Promise<{ did: string; accessToken: string }> {
   const did = `did:privy:test-${crypto.randomUUID()}`;
   const accessToken = await new SignJWT({})
-    .setProtectedHeader({ alg: "ES256" })
+    .setProtectedHeader({ alg: "ES256", kid: "test-key" })
     .setSubject(did)
     .setIssuer("privy.io")
     .setAudience(process.env.PRIVY_APP_ID!)
