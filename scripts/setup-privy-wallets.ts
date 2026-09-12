@@ -77,14 +77,18 @@ async function createAccount(payer: Client, role: string, wallet: Omit<PrivyHede
   return accountId;
 }
 
-/** Pays for the operator's own account: a one-time transfer from an existing funded account. */
+/**
+ * Pays for the operator's own account: a one-time transfer from an existing funded account.
+ * Prefer the environment variables; `bun run` echoes its arguments, so a key passed as a flag
+ * ends up in terminal scrollback and the process list.
+ */
 function bootstrapClient(): Client {
-  const accountId = values["bootstrap-account"];
-  const key = values["bootstrap-key"];
+  const accountId = process.env.BOOTSTRAP_ACCOUNT ?? values["bootstrap-account"];
+  const key = process.env.BOOTSTRAP_KEY ?? values["bootstrap-key"];
   if (!accountId || !key) {
     throw new Error(
       "OPERATOR_ACCOUNT_ID is not set yet, so the first run needs a funded account to create it:\n" +
-        "  bun run setup:privy -- --bootstrap-account 0.0.1234 --bootstrap-key <key>",
+        "  BOOTSTRAP_ACCOUNT=0.0.1234 BOOTSTRAP_KEY=<key> bun run setup:privy",
     );
   }
   const client = network === "hedera:mainnet" ? Client.forMainnet() : Client.forTestnet();
@@ -100,6 +104,7 @@ try {
   for (const { role, initialHbar } of ROLES) {
     const wallet = await walletFor(role);
     let accountId = process.env[`${role}_ACCOUNT_ID`]?.trim();
+    const existed = Boolean(accountId);
     if (accountId) {
       await assertAccountMatchesWallet(accountId, wallet);
       console.log(`  using existing ${role} account ${accountId}`);
@@ -114,7 +119,8 @@ try {
 
     if (tokenIds.length > 0) {
       // The account is this client's operator, so executing the association signs it through Privy.
-      const associated = await associateTokens(client, { accountId }, tokenIds).catch(error => {
+      // An account created moments ago isn't on the mirror node yet, so don't look it up there.
+      const associated = await associateTokens(client, { accountId }, tokenIds, { knownUnassociated: !existed }).catch(error => {
         console.error(`  could not associate ${role} with ${tokenIds.join(", ")}: ${error}`);
         return [];
       });

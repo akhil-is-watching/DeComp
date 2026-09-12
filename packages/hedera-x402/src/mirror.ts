@@ -19,7 +19,11 @@ export async function getTokenBalance(accountId: string, tokenId: string, networ
   const res = await mirrorGet<{ tokens: { token_id: string; balance: number }[] }>(
     `/api/v1/accounts/${accountId}/tokens?token.id=${tokenId}`,
     network,
-  );
+  ).catch(error => {
+    // A just-created account isn't on the mirror node yet, which reads the same as unassociated.
+    if (error instanceof Error && error.message.includes("Mirror node 404")) return { tokens: [] };
+    throw error;
+  });
   const row = res.tokens.find(t => t.token_id === tokenId);
   return row ? BigInt(row.balance) : null;
 }
