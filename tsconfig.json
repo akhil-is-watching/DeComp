@@ -25,5 +25,9 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false
-  }
+  },
+  // The connector's browser-bundled login page needs DOM lib, which conflicts with the Bun/Node
+  // stream types server code relies on (scripts/dev.ts's ReadableStream async iteration). It has
+  // its own tsconfig.json and is checked separately — see apps/connector/tsconfig.json.
+  "exclude": ["apps/connector/src/login.tsx"]
 }

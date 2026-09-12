@@ -21,8 +21,10 @@
     "validate:phase3": "bun scripts/validate-phase3.ts",
     "validate:phase4": "bun scripts/validate-phase4.ts",
     "audit:reconstruct": "bun scripts/reconstruct-audit.ts",
+    "connector": "bun apps/connector/src/index.ts",
+    "dev:connector": "bun --hot apps/connector/src/index.ts",
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && cd apps/connector && tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@hiero-ledger/sdk": "2.85.0",
