@@ -77,7 +77,9 @@ export function createBridgeServer(port = 0) {
       }
 
       if (url.pathname === "/") {
-        const base = `http://${server.hostname}:${server.port}`;
+        // Prefer the configured public URL (production); fall back to the actual bind address,
+        // which is what matters for local dev and for tests bound to a random port.
+        const base = process.env.BRIDGE_BASE_URL || `http://${server.hostname}:${server.port}`;
         return Response.json({ name: "decomp-bridge", connect: `${base.replace(/^http/, "ws")}/connect`, proxy: `${base}/p/<accountId>/...` });
       }
 
