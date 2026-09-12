@@ -23,6 +23,8 @@
     "audit:reconstruct": "bun scripts/reconstruct-audit.ts",
     "connector": "bun apps/connector/src/index.ts",
     "dev:connector": "bun --hot apps/connector/src/index.ts",
+    "bridge": "bun apps/bridge/src/index.ts",
+    "dev:bridge": "bun --hot apps/bridge/src/index.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit && cd apps/connector && tsc -p tsconfig.json --noEmit"
   },

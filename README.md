@@ -207,12 +207,35 @@ pays PROVIDER_1 instead.
 | `TICK_SECONDS` | `5` | Length of a paid tick |
 | `TICK_GRACE_SECONDS` | `5` | How long past its paid time a job may run before it's killed |
 | `MAX_RUNTIME_S` | `600` | Hard runtime limit per job |
-| `PUBLIC_URL` | `http://127.0.0.1:<PORT>` | Endpoint advertised in the registry |
+| `PUBLIC_URL` | `http://127.0.0.1:<PORT>` | Endpoint advertised in the registry; ignored when `BRIDGE_URL` is set |
+| `BRIDGE_URL` | none | Connect out to a [provider bridge](#provider-bridge) instead, for a provider with no public IP, domain, or tunnel of its own |
 | `REGISTRY_TOPIC_ID` | from `.env` | Registry topic; empty disables registration |
 | `JOB_RUNNER_URL` | `http://127.0.0.1:8100` | Job runner address |
 
 A provider only needs its Privy wallet to register on HCS; taking payment needs nothing but its
 account id, since the agent signs and the facilitator submits.
+
+## Provider bridge
+
+`apps/bridge` is a small relay so **anyone with a funded Hedera account can be a provider**,
+without a public IP, a domain, or a tunnel service of their own. A provider opens one persistent
+WebSocket connection out to the bridge and proves control of its account by signing a challenge;
+HTTP requests to `<bridge>/p/<accountId>/...` are then relayed over that connection to the
+provider's own local server and the response relayed back. The bridge never sees a key, never
+signs anything, and trusts nothing but that signature — see
+[Architecture: Provider bridge](docs/ARCHITECTURE.md#provider-bridge) for the full design.
+
+```bash
+# Point any provider at a running bridge instead of exposing itself directly
+BRIDGE_URL=https://<your bridge deployment> PROVIDER_NAME=PROVIDER_1 PORT=4021 bun run dev:provider
+
+# Run the bridge itself
+bun run bridge          # http://127.0.0.1:4040
+```
+
+Once connected, the provider registers on HCS with `<bridge>/p/<its account id>` as its endpoint,
+so agents (and the Claude connector) reach it through the relay exactly like any other provider —
+nothing about discovery, routing, or payment changes.
 
 ## Claude connector
 
@@ -281,6 +304,8 @@ Stop `bun run dev` before running a gate; the gates start their own services.
 | `apps/agent` | Agent CLI and library: discovery, routing, tick payments, audit records |
 | `apps/provider` | Provider server: x402 gate, pricing, metered job queue, HCS registration |
 | `apps/connector` | Claude connector: OAuth 2.1 AS/RS + MCP server, Privy login, per-user wallets |
+| `apps/bridge` | Provider bridge: a relay so a provider with no public IP can still be reached |
+| `packages/bridge-protocol` | The bridge's WebSocket frames and connect-time signature verification |
 | `packages/privy-hedera` | Privy wallets as Hedera signers: REST client, key handling, identities |
 | `packages/hedera-x402` | x402 on Hedera: Bun payment gate, paying client, facilitator wiring, mirror and token helpers |
 | `packages/hcs-registry` | HCS schemas for registrations and audit records, publishing, chunk-aware readers |

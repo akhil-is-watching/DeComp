@@ -13,6 +13,8 @@ differs from the original [build plan](BUILD_PLAN.md).
 | Provider | `apps/provider` | Bun HTTP server that sells jobs. Gates job creation and tick purchases with x402, enforces paid time, and registers itself on HCS. |
 | Agent | `apps/agent` | CLI and library. Discovers providers, pays for jobs tick by tick, confirms settlements on the mirror node, and publishes an audit record. |
 | Connector | `apps/connector` | Claude connector. A remote MCP server fronted by its own minimal OAuth 2.1 AS/RS; a person signs in with Privy and runs jobs by chatting, on a wallet provisioned for them on first login. |
+| Bridge | `apps/bridge` | Provider bridge. A relay a provider behind NAT connects out to, so it's reachable with no public IP, domain, or tunnel of its own. Holds no keys; verifies a connect-time signature against the mirror node instead. |
+| `@decomp/bridge-protocol` | `packages/bridge-protocol` | The bridge's WebSocket frame shapes and connect-time signature verification, shared by `apps/bridge` and `apps/provider`. |
 | `@decomp/privy-hedera` | `packages/privy-hedera` | Privy wallets as Hedera signers: a small REST client, public-key handling, and the `HederaIdentity` every app signs with. |
 | `@decomp/hedera-x402` | `packages/hedera-x402` | x402 on Hedera, built on the official `@x402/core` and `@x402/hedera` packages: a Bun.serve payment gate, a step-by-step paying client, facilitator wiring with a local payer-signature check, and mirror-node and token helpers. |
 | `@decomp/hcs-registry` | `packages/hcs-registry` | HCS message schemas (provider registrations, job audits), publishing, and mirror-node readers that reassemble chunked messages. |
@@ -197,6 +199,52 @@ boot, paid for with its own key:
 
 The registry lists HBAR prices; token payments use a provider chosen directly with `--provider`.
 
+## Provider bridge
+
+A provider's `endpoint` only has to be some HTTP(S) URL an agent can `fetch()` — nothing about
+discovery or payment cares how it's made reachable. `apps/bridge` exists because most providers
+don't have a public IP or a domain: it's a small relay a provider connects **out** to, so **anyone
+with a funded Hedera account can be a provider**, with no tunnel service, no port forwarding, and
+no account with this project at all.
+
+```mermaid
+sequenceDiagram
+  participant Pr as Provider (behind NAT)
+  participant Br as Bridge
+  participant Ag as Agent / connector
+
+  Pr->>Br: WebSocket connect
+  Br-->>Pr: challenge (nonce)
+  Note over Pr: signs the nonce as itself<br/>(HederaIdentity.signMessage)
+  Pr->>Br: hello {accountId, signature}
+  Note over Br: verifies against the account's<br/>real on-chain key (mirror node)
+  Br-->>Pr: ready
+  Note over Pr: registers on HCS with<br/>bridge/p/<accountId> as its endpoint
+
+  Ag->>Br: POST bridge/p/<accountId>/jobs
+  Br->>Pr: {type:"request", ...} over the open socket
+  Pr->>Pr: replay against its own local server
+  Pr->>Br: {type:"response", ...}
+  Br-->>Ag: the provider's real response
+```
+
+- **Authenticated the same way as everything else here.** Proving control of the account is a
+  signature over a one-time nonce (`HederaIdentity.signMessage` — secp256k1 over keccak256, the
+  same scheme every Hedera identity already signs with), checked against what the mirror node
+  actually reports for that account's key. No shared secret, no registration with the bridge
+  operator ahead of time.
+- **The bridge holds no keys and signs nothing.** It relays plaintext HTTP over an authenticated
+  WebSocket; it never sees a private key, a Privy credential, or anything to sign.
+- **One connection, replaced on reconnect.** A newer authenticated connection for an account
+  replaces an older one rather than contending with it; the provider's bridge client reconnects
+  with backoff if the connection drops, and re-authenticates fresh each time.
+- **Every header crosses, not just content-type.** x402's `PAYMENT-REQUIRED` /
+  `PAYMENT-SIGNATURE` / `PAYMENT-RESPONSE` headers ride the same relay as the JSON body; only
+  hop-by-hop headers (`Host`, `Connection`, `Content-Length`, ...) are stripped.
+- **Stateless relay, so it's cheap to run more than one.** Nothing about the bridge is
+  provider-specific; a deployment could run several for redundancy, with providers (or their
+  registered endpoint) simply pointing at whichever one they trust.
+
 ## Assets
 
 - **HBAR**: asset id `0.0.0`, amounts in tinybars.
@@ -345,6 +393,11 @@ revocation before their 1-hour expiry.
   lookup, which means no revocation before their 1-hour expiry. Refresh tokens are the opposite —
   opaque, stored only as a hash, and rotated on every use, with reuse of an already-rotated one
   revoking its whole chain.
+- **The bridge sees every request in plaintext.** Traffic between the bridge and the outside world
+  is HTTPS, but the bridge itself terminates it and relays the request onward — it never sees a
+  key or a signature it could forge, but it does see job parameters and 402 challenges in the
+  clear, and a malicious bridge could refuse or delay a provider's traffic. A provider that doesn't
+  trust a given bridge operator can run its own, or expose itself directly with `PUBLIC_URL`.
 
 ### Differences from the build plan
 
@@ -356,3 +409,5 @@ revocation before their 1-hour expiry.
 - The Claude connector (`apps/connector`) isn't part of the original 6-phase plan; it was added
   afterward, on the `HederaIdentity`/`WalletResolver` seam the plan's Phase 5 identity work left
   in place for exactly this.
+- The provider bridge (`apps/bridge`) likewise isn't in the original plan — it exists so the
+  connector, deployed off the machine running any given provider, can actually reach one.
