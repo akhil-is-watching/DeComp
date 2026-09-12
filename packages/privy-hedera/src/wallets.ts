@@ -44,7 +44,10 @@ export async function walletFromEnv(
  * connector's per-DID store keyed on whether it has already provisioned this user).
  */
 export async function walletForUser(privy: PrivyClient, userKey: string): Promise<Omit<PrivyHederaWallet, "accountId">> {
-  const externalId = `connector-user-${userKey}`;
+  // Privy's external_id must match its own id-safe pattern; a Privy DID's "did:privy:" colons
+  // don't, so sanitize rather than pass the key through raw (observed live: 400 invalid_string).
+  const safeKey = userKey.replace(/[^A-Za-z0-9_.-]/g, "-");
+  const externalId = `connector-user-${safeKey}`.slice(0, 64);
   const wallet = await privy.createWallet({ displayName: "DeComp connector user", externalId, idempotencyKey: externalId });
   return { walletId: wallet.id, publicKey: await hederaPublicKeyFor(privy, wallet) };
 }

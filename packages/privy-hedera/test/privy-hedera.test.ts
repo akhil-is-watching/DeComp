@@ -10,6 +10,7 @@ import { keccak_256 } from "@noble/hashes/sha3";
 import { PrivyClient, PrivyError, normalizeSignature } from "../src/client";
 import { evmAddressOf, hederaPublicKeyFor, parsePrivyPublicKey } from "../src/keys";
 import { createPrivyClientHederaSigner, type PrivyHederaWallet } from "../src/signer";
+import { walletForUser } from "../src/wallets";
 
 const walletKey = PrivateKey.generateECDSA();
 const walletKeyRaw = walletKey.toBytesRaw();
@@ -142,6 +143,23 @@ describe("public keys", () => {
     const client = privy();
     const key = await hederaPublicKeyFor(client, await client.getWallet("wal_1"));
     expect(key.toStringRaw()).toBe(walletKey.publicKey.toStringRaw());
+  });
+});
+
+describe("walletForUser", () => {
+  test("sanitizes a Privy DID's colons out of external_id", async () => {
+    await walletForUser(privy(), "did:privy:cm123abc");
+    const created = requests.find(r => r.path === "/v1/wallets" && r.method === "POST")!;
+    const externalId = (created.body as unknown as { external_id?: string }).external_id;
+    expect(externalId).toBe("connector-user-did-privy-cm123abc");
+    expect(externalId).not.toContain(":");
+  });
+
+  test("caps external_id at 64 characters for very long keys", async () => {
+    await walletForUser(privy(), "x".repeat(100));
+    const created = requests.find(r => r.path === "/v1/wallets" && r.method === "POST")!;
+    const externalId = (created.body as unknown as { external_id?: string }).external_id!;
+    expect(externalId.length).toBeLessThanOrEqual(64);
   });
 });
 
