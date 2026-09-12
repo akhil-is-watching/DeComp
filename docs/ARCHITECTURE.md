@@ -12,9 +12,45 @@ differs from the original [build plan](BUILD_PLAN.md).
 | Job runner | `services/job-runner` | FastAPI sidecar. Runs a fixed menu of jobs (`benchmark`, `mandelbrot`) as killable subprocesses on the Apple GPU (MLX or PyTorch MPS) and meters their wall-clock time. Refuses to run on CPU. |
 | Provider | `apps/provider` | Bun HTTP server that sells jobs. Gates job creation and tick purchases with x402, enforces paid time, and registers itself on HCS. |
 | Agent | `apps/agent` | CLI and library. Discovers providers, pays for jobs tick by tick, confirms settlements on the mirror node, and publishes an audit record. |
+| `@decomp/privy-hedera` | `packages/privy-hedera` | Privy wallets as Hedera signers: a small REST client, public-key handling, and the `HederaIdentity` every app signs with. |
 | `@decomp/hedera-x402` | `packages/hedera-x402` | x402 on Hedera, built on the official `@x402/core` and `@x402/hedera` packages: a Bun.serve payment gate, a step-by-step paying client, facilitator wiring with a local payer-signature check, and mirror-node and token helpers. |
 | `@decomp/hcs-registry` | `packages/hcs-registry` | HCS message schemas (provider registrations, job audits), publishing, and mirror-node readers that reassemble chunked messages. |
-| Scripts | `scripts/` | Account, topic, and token setup; `bun run dev`; the phase validation gates; the standalone audit reconstruction. |
+| Scripts | `scripts/` | Wallet, topic, and token setup; `bun run dev`; the phase validation gates; the standalone audit reconstruction. |
+
+## Wallets and identity
+
+No Hedera private key exists anywhere in this system. Each role — `OPERATOR`, `AGENT`, and each
+provider — is a [Privy](https://privy.io) wallet plus the Hedera account it keys.
+
+Privy has no Hedera chain type, so the wallets are secp256k1 (`ethereum`) wallets used purely as
+signers. That works because a Hedera ECDSA signature is plain secp256k1 over the **keccak256**
+digest of a transaction body, which Privy's `raw_sign` produces directly. Two details matter:
+
+- **Low-s normalization.** Hedera rejects high-`s` signatures, so every signature is normalized to
+  its low-`s` form before use.
+- **One signature per node.** A Hedera transaction carries a separate body per consensus node, and
+  the SDK asks the signer for each one. A default freeze would cost seven Privy calls per payment,
+  so payments are built for two nodes: two signatures, with a spare node for the facilitator.
+
+Signatures are verified locally against the account's public key before anything is sent, so a
+mismatched wallet fails immediately instead of as an opaque on-chain `INVALID_SIGNATURE`.
+
+```mermaid
+flowchart LR
+  App[Agent or provider] -->|"raw_sign(bytes, keccak256)"| Privy[(Privy TEE)]
+  Privy -->|secp256k1 signature| App
+  App -->|signed transaction| Hedera[(Hedera)]
+```
+
+Every component takes a `HederaIdentity`: an account id, an x402 payment signer, and a factory for
+a Hedera client that signs as that account. It is resolved from `<ROLE>_WALLET_ID` and
+`<ROLE>_ACCOUNT_ID` today. A Claude Code connector that authenticates users over OAuth can resolve
+the same object from the caller's Privy user, and nothing downstream changes; that is what the
+`WalletResolver` seam exists for. Delegated user-owned wallets fit the same shape.
+
+**Bootstrap.** Creating the operator's Hedera account needs an existing funded account, so the
+first `bun run setup:privy` takes `--bootstrap-account` and `--bootstrap-key` on the command line.
+That key is used once, is never written to `.env`, and is not needed again.
 
 External services: the Blocky402 facilitator (`/supported`, `/verify`, `/settle`; testnet fee
 payer `0.0.7162784`), Hedera testnet consensus (HBAR and HTS transfers, HCS), and the public
@@ -225,6 +261,14 @@ published by the agent it names.
 - **Open topics.** Anyone can post to the registry and audit topics; readers ignore messages that
   fail schema or payer checks.
 - **Local topology.** `bun run dev` runs three providers against one job runner and GPU.
+- **Custody moved, not removed.** No Hedera key exists here, but the Privy app secret in `.env`
+  authorizes signing with every wallet in the app, so it is now the single secret worth
+  protecting. Privy policies and authorization keys can narrow that (per-wallet owners, quorum
+  approval); this project uses app-owned wallets, which is the simplest configuration and the
+  least restrictive.
+- **Availability depends on Privy.** Payments and HCS messages need a Privy round-trip per
+  transaction body, so an outage or rate limit there stops signing, though nothing already
+  settled is affected.
 
 ### Differences from the build plan
 

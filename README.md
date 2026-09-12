@@ -6,8 +6,12 @@ of measured GPU time** with [x402](https://x402.org), settled on **Hedera** thro
 Consensus Service (HCS), agents route to the cheapest one, and every job leaves an audit record on
 HCS that anyone can check against the chain.
 
-- **x402-gated service.** Creating a job answers with HTTP 402; the agent signs a Hedera
-  transfer, the provider verifies and settles it through Blocky402, then runs the job on the GPU.
+**No private keys.** Every account — agent, providers, operator — is keyed by a
+[Privy](https://privy.io) wallet. Signing happens inside Privy; this project only ever sees
+signatures, and `.env` holds no Hedera key material at all.
+
+- **x402-gated service.** Creating a job answers with HTTP 402; the agent's Privy wallet signs a
+  Hedera transfer, the provider verifies and settles it through Blocky402, then runs the job.
 - **Metered, streamed payments.** Jobs are paid in 5-second ticks. Each new tick is a fresh 402
   "continue" challenge, and the provider kills any job that stops being paid for.
 - **Discovery on HCS.** Providers register their prices on an HCS topic; agents pick the cheapest
@@ -18,13 +22,22 @@ HCS that anyone can check against the chain.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design and trust model.
 
+## Wallets and identity
+
+Each role (`OPERATOR`, `AGENT`, `PROVIDER_1…3`) is a Privy wallet plus the Hedera account it
+keys. Privy has no Hedera chain type, so these are secp256k1 (`ethereum`) wallets used purely as
+signers: Hedera ECDSA signatures are secp256k1 over the keccak256 digest of each transaction body,
+which Privy's `raw_sign` produces directly.
+
+Everything downstream takes a `HederaIdentity` — an account plus a signer — rather than a key.
+Today it is resolved from `<ROLE>_WALLET_ID` in `.env`; a future Claude Code connector can resolve
+the same object from an OAuth session's Privy user without changing the agent, provider, or gates.
+
 ## Live on Hedera testnet
 
 | What | Link |
 |---|---|
 | Blocky402 fee payer | [0.0.7162784](https://hashscan.io/testnet/account/0.0.7162784) |
-| Agent account | [0.0.10481877](https://hashscan.io/testnet/account/0.0.10481877) |
-| Provider accounts | [0.0.10481879](https://hashscan.io/testnet/account/0.0.10481879), [0.0.10481883](https://hashscan.io/testnet/account/0.0.10481883), [0.0.10481887](https://hashscan.io/testnet/account/0.0.10481887) |
 | Provider registry topic | [0.0.10482100](https://hashscan.io/testnet/topic/0.0.10482100) |
 | Job audit topic | [0.0.10482650](https://hashscan.io/testnet/topic/0.0.10482650) |
 | Compute token (DCC) | [0.0.10482651](https://hashscan.io/testnet/token/0.0.10482651) |
@@ -36,7 +49,12 @@ Each build phase is tagged where its validation gate passed on testnet:
 [`v0.1.0-qualified`](../../releases/tag/v0.1.0-qualified) (paid job end to end),
 [`v0.2.0`](../../releases/tag/v0.2.0) (discovery and routing),
 [`v0.3.0`](../../releases/tag/v0.3.0) (metered ticks),
-[`v0.4.0`](../../releases/tag/v0.4.0) (audit trail and token payments).
+[`v0.4.0`](../../releases/tag/v0.4.0) (audit trail and token payments),
+[`v0.5.0`](../../releases/tag/v0.5.0) (submission docs and fresh-clone reproduction).
+
+Those settlements were produced by the earlier key-based accounts. Signing moved to Privy
+afterwards; the signer is covered by unit tests, and the phase gates are re-run against
+Privy-keyed accounts once an app's credentials are configured.
 
 ## How a payment works
 
@@ -45,8 +63,8 @@ Each build phase is tagged where its validation gate passed on testnet:
    the x402 `exact` scheme on `hedera:testnet`, one tick's price in HBAR (and DCC when enabled),
    the provider's `payTo` account, and `extra.feePayer`, the facilitator's account.
 3. The agent builds a Hedera `TransferTransaction` from itself to the provider, with the
-   transaction id under the facilitator's fee payer, signs it, and retries with the
-   `PAYMENT-SIGNATURE` header. It never submits the transaction or pays fees itself.
+   transaction id under the facilitator's fee payer, and asks **Privy** to sign each transaction
+   body. It never submits the transaction or pays fees itself.
 4. The provider calls Blocky402 `/verify`, checks the payer's signature against its on-chain key
    itself, starts the job on the GPU, then calls `/settle`. Blocky402 adds the fee payer's
    signature and submits the transfer to Hedera.
@@ -56,17 +74,19 @@ Each build phase is tagged where its validation gate passed on testnet:
    which repeats steps 2–5 in the job's asset. The provider kills the job if its measured runtime
    passes paid time plus a 5-second grace period.
 7. When the job ends, the agent fetches the result, confirms every settlement on the mirror
-   node, and publishes an audit record to HCS.
+   node, and publishes an audit record to HCS, again signed by its Privy wallet.
 
 ```mermaid
 sequenceDiagram
   participant A as Agent
+  participant W as Privy
   participant P as Provider
   participant F as Blocky402
   participant H as Hedera
   A->>P: POST /jobs
   P-->>A: 402 PAYMENT-REQUIRED
-  Note over A: sign TransferTransaction
+  A->>W: raw_sign (keccak256 of each body)
+  W-->>A: secp256k1 signature
   A->>P: POST /jobs + PAYMENT-SIGNATURE
   P->>F: /verify
   P->>P: run job on GPU
@@ -84,29 +104,37 @@ sequenceDiagram
 - An Apple-silicon Mac. The job runner refuses to run on CPU.
 - [Bun](https://bun.com) 1.2 or newer.
 - [uv](https://docs.astral.sh/uv/), which installs Python 3.12 for the job runner.
-- One **ECDSA** Hedera testnet account from [portal.hedera.com](https://portal.hedera.com); new
-  portal accounts come with 1,000 testnet ℏ.
+- A [Privy](https://dashboard.privy.io) app, for its app id and app secret.
+- One funded Hedera testnet account, used **once** to create and fund the operator's account.
+  [portal.hedera.com](https://portal.hedera.com) gives new accounts 1,000 testnet ℏ.
 
 ## Setup
 
 ```bash
 bun install
 bun run setup:runner          # Python 3.12 venv with MLX, PyTorch, FastAPI
-cp .env.example .env          # then set OPERATOR_ID and OPERATOR_KEY
-bun run setup:hedera          # creates and funds the agent and three provider accounts
+cp .env.example .env          # then set PRIVY_APP_ID and PRIVY_APP_SECRET
+
+# first run only: fund the operator from an existing account. The key is used once, passed on the
+# command line, and never stored.
+bun run setup:privy -- --bootstrap-account 0.0.1234 --bootstrap-key <hex or DER key>
+
 bun run setup:topics          # creates the HCS registry and audit topics
 bun run setup:token           # mints DCC, associates accounts, funds the agent
-bun run check:phase0          # facilitator, balances, GPU backends, lockfile
+bun run check:phase0          # facilitator, wallets, balances, GPU backends, lockfile
 ```
 
-- **`OPERATOR_ID` / `OPERATOR_KEY`** are the only values you fill in by hand. The key can be the
-  portal's HEX (with or without `0x`) or DER form.
-- **`setup:hedera`** generates keys for the agent and three providers, funds them (50 ℏ and
-  5 ℏ each), and writes their credentials to `.env` as it goes.
-- **`setup:topics` and `setup:token`** write their topic and token ids to `.env`.
-- **All setup scripts are safe to re-run.** They reuse whatever `.env` already has.
+- **`PRIVY_APP_ID` / `PRIVY_APP_SECRET`** are the only secrets in `.env`. Get them from the Privy
+  dashboard under App settings → API keys.
+- **`setup:privy`** creates a Privy wallet per role, creates the Hedera account each one keys,
+  funds it, and writes the wallet and account ids to `.env`. Re-running it reuses both.
+- **Everything after bootstrap is signed by Privy**, including topic creation, the token mint,
+  associations, registrations, payments, and audit records.
+- **`check:phase0`** fails if an account is not keyed to its wallet, which is the failure that
+  would otherwise surface as an opaque `INVALID_SIGNATURE` later.
 
-`.env` holds private keys. It is gitignored; never commit it.
+`.env` holds no Hedera private keys. It does hold your Privy app secret, so keep it out of git;
+it is gitignored.
 
 ## Run it
 
@@ -160,7 +188,7 @@ pays PROVIDER_1 instead.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `PROVIDER_NAME` | `PROVIDER_1` | Which `<NAME>_ACCOUNT_ID` / `<NAME>_PRIVATE_KEY` to use |
+| `PROVIDER_NAME` | `PROVIDER_1` | Which `<NAME>_WALLET_ID` / `<NAME>_ACCOUNT_ID` to use |
 | `PORT` | `4021` | HTTP port |
 | `PROVIDER_OFFERS` | `benchmark:2000000` | Job types and tinybars per GPU-second |
 | `PROVIDER_TOKEN_OFFERS` | none | Prices in `COMPUTE_TOKEN_ID` units per second; must cover every job type |
@@ -170,6 +198,9 @@ pays PROVIDER_1 instead.
 | `PUBLIC_URL` | `http://127.0.0.1:<PORT>` | Endpoint advertised in the registry |
 | `REGISTRY_TOPIC_ID` | from `.env` | Registry topic; empty disables registration |
 | `JOB_RUNNER_URL` | `http://127.0.0.1:8100` | Job runner address |
+
+A provider only needs its Privy wallet to register on HCS; taking payment needs nothing but its
+account id, since the agent signs and the facilitator submits.
 
 ## Jobs
 
@@ -190,12 +221,12 @@ live testnet. They start the services they need, and they spend a little testnet
 
 | Command | Checks |
 |---|---|
-| `bun run check:phase0` | Facilitator advertises `hedera:testnet`, every account is funded, MLX and MPS see the GPU, the lockfile installs |
-| `bun run validate:phase1` | The 402 carries the facilitator's fee payer, a signed payment passes `/verify`, and three paid GPU jobs settle as distinct transactions |
+| `bun run check:phase0` | Facilitator advertises `hedera:testnet`, every account is keyed to its Privy wallet and funded, MLX and MPS see the GPU, the lockfile installs |
+| `bun run validate:phase1` | The 402 carries the facilitator's fee payer, a Privy-signed payment passes `/verify`, and three paid GPU jobs settle as distinct transactions |
 | `bun run validate:phase2` | Three providers register on boot, discovery filters by job type, routing picks the cheapest, fallback works when it's down |
 | `bun run validate:phase3` | A >10 s GPU job, one job settling ≥3 ticks, billing within ±1 tick of measured time, provider-side kill at the budget ceiling |
 | `bun run validate:phase4` | Token association, a job paid entirely in DCC, a complete audit record per job, and the standalone reconstruction matching the agent |
-| `bun test` | Unit tests plus a live payment-gate suite that needs no funded accounts |
+| `bun test` | Unit tests, including the Privy signer against a stubbed API, plus a live payment-gate suite that needs no funded accounts |
 
 Stop `bun run dev` before running a gate; the gates start their own services.
 
@@ -205,6 +236,7 @@ Stop `bun run dev` before running a gate; the gates start their own services.
 |---|---|
 | `apps/agent` | Agent CLI and library: discovery, routing, tick payments, audit records |
 | `apps/provider` | Provider server: x402 gate, pricing, metered job queue, HCS registration |
+| `packages/privy-hedera` | Privy wallets as Hedera signers: REST client, key handling, identities |
 | `packages/hedera-x402` | x402 on Hedera: Bun payment gate, paying client, facilitator wiring, mirror and token helpers |
 | `packages/hcs-registry` | HCS schemas for registrations and audit records, publishing, chunk-aware readers |
 | `services/job-runner` | FastAPI job runner with the GPU job menu and wall-clock metering |
@@ -213,23 +245,27 @@ Stop `bun run dev` before running a gate; the gates start their own services.
 
 ## Security notes
 
-- **Keys stay local.** Private keys live only in `.env`, which is gitignored; every commit in
-  this repository was scanned for key material.
+- **No Hedera private keys.** Keys live in Privy and sign inside its TEE. The repository, `.env`,
+  and process memory only ever hold signatures; every commit was scanned for key material.
+- **Signatures are checked locally before use.** A wallet that signs with the wrong key fails
+  immediately rather than as an opaque on-chain `INVALID_SIGNATURE`.
 - **The provider checks payer signatures itself.** Blocky402's hosted testnet `/verify` returned
   `isValid: true` for transfers signed with the wrong key (observed 2026-09-12); such payments
   only fail at settlement. The provider verifies every payer's signature against its on-chain
   key before starting paid work.
-- **Limits.** Providers aren't cryptographically proven to have run a job, and up to one grace
-  period of compute can go unpaid; see
-  [Trust model and limits](docs/ARCHITECTURE.md#trust-model-and-limits).
+- **What the Privy app secret can do.** It authorizes signing with every wallet in the app, so it
+  is the one secret worth protecting here. Privy authorization keys and policies can narrow that;
+  see [Trust model and limits](docs/ARCHITECTURE.md#trust-model-and-limits).
 
 ## Troubleshooting
 
 | Symptom | Fix |
 |---|---|
+| `Missing PRIVY_APP_ID / PRIVY_APP_SECRET` | Create an app at dashboard.privy.io and set both in `.env`. |
+| `Privy API 401` | The app credentials were rejected; check for a stale secret. |
+| `is not keyed to Privy wallet` | The account and wallet don't match; clear that `<ROLE>_ACCOUNT_ID` and re-run `bun run setup:privy`. |
 | `MLX default device is cpu` | Run on an Apple-silicon Mac; re-run `bun run setup:runner`. |
 | `TOKEN_NOT_ASSOCIATED_TO_ACCOUNT` or a `preflight_failed` 402 | Run `bun run setup:token`, and check the agent's balance. |
 | `stop running providers first` | Stop `bun run dev` before running a validation gate. |
-| `job runner not reachable` | `bun run dev` starts it; for a single provider, run `bun run dev:runner` too. |
 | HTTP 429 from the facilitator | Blocky402 testnet allows 100 requests a minute per IP; wait a minute. |
 | A new transaction isn't on HashScan yet | The mirror node trails consensus by a few seconds. |
