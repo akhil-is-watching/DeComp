@@ -1,0 +1,16 @@
+{
+  "name": "@decomp/bridge",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "bun src/index.ts"
+  },
+  "dependencies": {
+    "@decomp/bridge-protocol": "workspace:*",
+    "@decomp/hedera-x402": "workspace:*"
+  },
+  "devDependencies": {
+    "@decomp/privy-hedera": "workspace:*"
+  }
+}

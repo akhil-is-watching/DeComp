@@ -25,6 +25,17 @@
         "@decomp/privy-hedera": "workspace:*",
       },
     },
+    "apps/bridge": {
+      "name": "@decomp/bridge",
+      "version": "0.1.0",
+      "dependencies": {
+        "@decomp/bridge-protocol": "workspace:*",
+        "@decomp/hedera-x402": "workspace:*",
+      },
+      "devDependencies": {
+        "@decomp/privy-hedera": "workspace:*",
+      },
+    },
     "apps/connector": {
       "name": "@decomp/connector",
       "version": "0.1.0",
@@ -52,6 +63,16 @@
         "@decomp/hedera-x402": "workspace:*",
         "@decomp/privy-hedera": "workspace:*",
         "@x402/core": "2.25.0",
+      },
+    },
+    "packages/bridge-protocol": {
+      "name": "@decomp/bridge-protocol",
+      "version": "0.1.0",
+      "dependencies": {
+        "@decomp/hedera-x402": "workspace:*",
+      },
+      "devDependencies": {
+        "@decomp/privy-hedera": "workspace:*",
       },
     },
     "packages/hcs-registry": {
@@ -129,6 +150,10 @@
     "@coinbase/wallet-sdk": ["@coinbase/wallet-sdk@4.3.2", "", { "dependencies": { "@noble/hashes": "^1.4.0", "clsx": "^1.2.1", "eventemitter3": "^5.0.1", "preact": "^10.24.2" } }, "sha512-hOLA2YONq8Z9n8f6oVP6N//FEEHOen7nq+adG/cReol6juFTHUelVN5GnA5zTIxiLFMDcrhDwwgCA6Tdb5jubw=="],
 
     "@decomp/agent": ["@decomp/agent@workspace:apps/agent"],
+
+    "@decomp/bridge": ["@decomp/bridge@workspace:apps/bridge"],
+
+    "@decomp/bridge-protocol": ["@decomp/bridge-protocol@workspace:packages/bridge-protocol"],
 
     "@decomp/connector": ["@decomp/connector@workspace:apps/connector"],
 
