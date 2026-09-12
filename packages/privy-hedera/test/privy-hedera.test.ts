@@ -171,10 +171,25 @@ describe("x402 payment signing", () => {
     expect(transaction.hbarTransfers.size).toBe(0);
   });
 
-  test("signs once per node body", async () => {
+  test("signs once per node body, with one body per distinct node", async () => {
     const signer = createPrivyClientHederaSigner(privy(), wallet(), { nodeCount: 2 });
-    await signer.createPartiallySignedTransferTransaction(requirements());
+    const encoded = await signer.createPartiallySignedTransferTransaction(requirements());
     expect(signRequests()).toHaveLength(2);
+
+    // A node repeated across bodies makes the payload unparseable, and the network map lists a
+    // node under several addresses, so this guards the deduplication.
+    const nodes = Transaction.fromBytes(Buffer.from(encoded, "base64")).nodeAccountIds!.map(String);
+    expect(new Set(nodes).size).toBe(nodes.length);
+  });
+
+  test("picks the same nodes every time, so payments don't fail intermittently", async () => {
+    const signer = createPrivyClientHederaSigner(privy(), wallet(), { nodeCount: 2 });
+    const runs = [];
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const encoded = await signer.createPartiallySignedTransferTransaction(requirements());
+      runs.push(Transaction.fromBytes(Buffer.from(encoded, "base64")).nodeAccountIds!.map(String).join(","));
+    }
+    expect(new Set(runs).size).toBe(1);
   });
 
   test("refuses a signature the account's key doesn't match", async () => {

@@ -107,9 +107,19 @@ export function createPrivyClientHederaSigner(
       try {
         // Each node gets its own body to sign, so a default freeze would cost seven Privy calls.
         // A couple of nodes keeps a payment to two signatures while leaving the facilitator a retry.
-        const nodes = Object.values(client.network)
-          .slice(0, Math.max(1, nodeCount))
-          .map(node => (typeof node === "string" ? AccountId.fromString(node) : node));
+        //
+        // The network map is keyed by address, and a node answers on several addresses, so the
+        // same account can appear more than once. Taking it twice would build two bodies for one
+        // node, and the payload then fails to parse ("failed to validate transaction bodies"),
+        // intermittently, depending on map order. Dedupe and order it, so payments are stable.
+        const byAccount = new Map<string, AccountId>();
+        for (const node of Object.values(client.network)) {
+          const accountId = typeof node === "string" ? AccountId.fromString(node) : node;
+          if (!byAccount.has(accountId.toString())) byAccount.set(accountId.toString(), accountId);
+        }
+        const nodes = [...byAccount.values()]
+          .sort((a, b) => a.toString().localeCompare(b.toString(), undefined, { numeric: true }))
+          .slice(0, Math.max(1, nodeCount));
         if (nodes.length > 0) transaction.setNodeAccountIds(nodes);
         transaction.freezeWith(client);
         await signTransaction(privy, wallet, transaction);
