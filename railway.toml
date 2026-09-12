@@ -22,12 +22,14 @@
 # PRIVY_JWKS_URL needs no override — it's derived from PRIVY_APP_ID.
 
 [build]
-builder = "NIXPACKS"
-buildCommand = "bun install --frozen-lockfile"
-watchPatterns = ["apps/connector/**", "packages/**", "package.json", "bun.lock", "tsconfig.json", "railway.toml"]
+# Nixpacks' pinned nixpkgs snapshot tried to install Node.js 18 (now removed from nixpkgs as
+# EOL) as part of its generic Bun provider, failing the build outright. A Dockerfile against the
+# official oven/bun image sidesteps Railway's nix pinning entirely and is easier to reason about.
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+watchPatterns = ["apps/connector/**", "packages/**", "package.json", "bun.lock", "tsconfig.json", "Dockerfile", "railway.toml"]
 
 [deploy]
-startCommand = "bun run apps/connector/src/index.ts"
 healthcheckPath = "/health"
 healthcheckTimeout = 100
 restartPolicyType = "ON_FAILURE"

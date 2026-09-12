@@ -1,0 +1,11 @@
+.git
+node_modules
+**/node_modules
+logs
+out
+services/job-runner/.venv
+services/job-runner/outputs
+services/job-runner/__pycache__
+apps/connector/data
+*.log
+.DS_Store
