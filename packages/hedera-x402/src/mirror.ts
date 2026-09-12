@@ -1,3 +1,4 @@
+import { PublicKey } from "@hiero-ledger/sdk";
 import { HBAR_ASSET, networkConfig, type HederaNetwork } from "./config";
 
 export async function mirrorGet<T>(path: string, network?: HederaNetwork): Promise<T> {
@@ -30,6 +31,17 @@ export async function getTokenBalance(accountId: string, tokenId: string, networ
 
 export async function isTokenAssociated(accountId: string, tokenId: string, network?: HederaNetwork): Promise<boolean> {
   return (await getTokenBalance(accountId, tokenId, network)) !== null;
+}
+
+/**
+ * The account's single (non-key-list) public key from the mirror node, or null for an account
+ * with no simple key or one this project doesn't sign with (only ECDSA/secp256k1 accounts do,
+ * same as every Privy-backed identity elsewhere in this project).
+ */
+export async function getAccountPublicKey(accountId: string, network?: HederaNetwork): Promise<PublicKey | null> {
+  const account = await mirrorGet<{ key: { _type: string; key: string } | null }>(`/api/v1/accounts/${accountId}`, network);
+  if (account.key?._type !== "ECDSA_SECP256K1") return null;
+  return PublicKey.fromStringECDSA(account.key.key);
 }
 
 /** SDK transaction ids look like `0.0.123@1700000000.000000001`; the mirror node wants `0.0.123-1700000000-000000001`. */

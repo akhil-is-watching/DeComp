@@ -9,6 +9,7 @@ import { secp256k1 } from "@noble/curves/secp256k1";
 import { keccak_256 } from "@noble/hashes/sha3";
 import { PrivyClient, PrivyError, normalizeSignature } from "../src/client";
 import { evmAddressOf, hederaPublicKeyFor, parsePrivyPublicKey } from "../src/keys";
+import { identityForUser } from "../src/identity";
 import { createPrivyClientHederaSigner, type PrivyHederaWallet } from "../src/signer";
 import { walletForUser } from "../src/wallets";
 
@@ -143,6 +144,16 @@ describe("public keys", () => {
     const client = privy();
     const key = await hederaPublicKeyFor(client, await client.getWallet("wal_1"));
     expect(key.toStringRaw()).toBe(walletKey.publicKey.toStringRaw());
+  });
+});
+
+describe("HederaIdentity.signMessage", () => {
+  test("signs arbitrary bytes verifiably against the wallet's public key", async () => {
+    const identity = await identityForUser("test-user", wallet(), { privy: privy(), network: "hedera:testnet" });
+    const message = new TextEncoder().encode("prove you hold this account");
+    const signature = await identity.signMessage(message);
+    expect(walletKey.publicKey.verify(message, signature)).toBe(true);
+    expect(walletKey.publicKey.verify(new TextEncoder().encode("a different message"), signature)).toBe(false);
   });
 });
 

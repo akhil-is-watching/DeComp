@@ -9,7 +9,7 @@ import type { Client } from "@hiero-ledger/sdk";
 import { hederaNetwork, type HederaNetwork } from "@decomp/hedera-x402";
 import type { ClientHederaSigner } from "@x402/hedera";
 import type { PrivyClient } from "./client";
-import { createPrivyClientHederaSigner, privySdkClient, type PrivyHederaWallet } from "./signer";
+import { createPrivyClientHederaSigner, createTransactionSigner, privySdkClient, type PrivyHederaWallet } from "./signer";
 import { privyClientFromEnv, walletFromEnv } from "./wallets";
 
 /** The wiring shared by `privyIdentity` and `identityForUser`, once a wallet is in hand. */
@@ -19,6 +19,7 @@ function buildIdentity(role: string, privy: PrivyClient, wallet: PrivyHederaWall
     accountId: wallet.accountId,
     wallet,
     paymentSigner: createPrivyClientHederaSigner(privy, wallet, { network, ...(nodeCount === undefined ? {} : { nodeCount }) }),
+    signMessage: createTransactionSigner(privy, wallet.walletId),
     createClient: () => privySdkClient(privy, wallet, network),
   };
 }
@@ -29,6 +30,12 @@ export type HederaIdentity = {
   wallet: PrivyHederaWallet;
   /** Signs x402 payments; every signature happens inside Privy. */
   paymentSigner: ClientHederaSigner;
+  /**
+   * Signs arbitrary bytes as this identity (secp256k1 over their keccak256 digest — the same
+   * scheme Hedera ECDSA transactions use, verifiable with `PublicKey.verify`). Used for proving
+   * control of the account outside of a Hedera transaction, e.g. the bridge's connect handshake.
+   */
+  signMessage: (message: Uint8Array) => Promise<Uint8Array>;
   /** A Hedera client that signs as this identity, for HCS, HTS, and account work. Close it when done. */
   createClient: () => Client;
 };
