@@ -1,0 +1,34 @@
+# Railway deploy config for the DeComp Claude connector (apps/connector).
+#
+# Deploy this repo as a Railway service with its Root Directory left at the repo root (not
+# apps/connector) — apps/connector depends on the @decomp/* workspace packages via `workspace:*`,
+# which only resolve correctly when `bun install` runs against the whole monorepo.
+#
+# Environment variables to set in Railway's dashboard (never committed here — see .env.example
+# for what each one means):
+#   PRIVY_APP_ID, PRIVY_APP_SECRET              same Privy app the rest of DeComp uses
+#   CONNECTOR_TOKEN_SECRET                      `openssl rand -hex 32`
+#   CONNECTOR_BASE_URL                          https://${{RAILWAY_PUBLIC_DOMAIN}}
+#   HEDERA_NETWORK, FACILITATOR_URL             usually the defaults in .env.example
+#   OPERATOR_WALLET_ID, OPERATOR_ACCOUNT_ID     the operator identity that funds new users
+#   AGENT_WALLET_ID, AGENT_ACCOUNT_ID           only if this service also runs agent-side scripts
+#   REGISTRY_TOPIC_ID, AUDIT_TOPIC_ID, COMPUTE_TOKEN_ID, ASSOCIATE_TOKEN_IDS
+#   CONNECTOR_DB_PATH=/data/connector.sqlite    once a volume is attached at /data — the connector's
+#                                                per-user wallet cache and OAuth state need a
+#                                                persistent disk; Railway's own filesystem is
+#                                                otherwise wiped on every deploy
+#
+# PORT is set by Railway automatically; the connector binds to it (see apps/connector/src/env.ts).
+# PRIVY_JWKS_URL needs no override — it's derived from PRIVY_APP_ID.
+
+[build]
+builder = "NIXPACKS"
+buildCommand = "bun install --frozen-lockfile"
+watchPatterns = ["apps/connector/**", "packages/**", "package.json", "bun.lock", "tsconfig.json", "railway.toml"]
+
+[deploy]
+startCommand = "bun run apps/connector/src/index.ts"
+healthcheckPath = "/health"
+healthcheckTimeout = 100
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10

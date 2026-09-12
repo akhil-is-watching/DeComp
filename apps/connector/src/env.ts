@@ -1,11 +1,16 @@
 /** Connector configuration, read once at startup. */
 import { requireEnv } from "@decomp/hedera-x402";
 
+// Railway (and most PaaS hosts) assign a port at runtime via $PORT and expect the app to bind to
+// it; CONNECTOR_PORT stays the override for local dev, where nothing sets $PORT.
+const port = Number(process.env.PORT ?? process.env.CONNECTOR_PORT ?? 4030);
+
 export const env = {
-  port: Number(process.env.CONNECTOR_PORT ?? 4030),
+  port,
   // The public origin Claude and the login page redirect back to; override with a tunnel URL
-  // (e.g. ngrok) when testing against claude.ai, since it can't reach 127.0.0.1.
-  baseUrl: (process.env.CONNECTOR_BASE_URL ?? `http://127.0.0.1:${process.env.CONNECTOR_PORT ?? 4030}`).replace(/\/$/, ""),
+  // (e.g. ngrok) locally, since claude.ai can't reach 127.0.0.1, or the platform's public URL in
+  // production (on Railway: CONNECTOR_BASE_URL=https://${{RAILWAY_PUBLIC_DOMAIN}}).
+  baseUrl: (process.env.CONNECTOR_BASE_URL ?? `http://127.0.0.1:${port}`).replace(/\/$/, ""),
   dbPath: process.env.CONNECTOR_DB_PATH ?? new URL("../data/connector.sqlite", import.meta.url).pathname,
 
   privyAppId: requireEnv("PRIVY_APP_ID"),
