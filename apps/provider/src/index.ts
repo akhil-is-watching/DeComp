@@ -9,6 +9,7 @@ import type { SettleResponse } from "@x402/core/types";
 import { REGISTRATION_SCHEMA, publishRegistration } from "@decomp/hcs-registry";
 import { fetchFacilitatorFeePayer, hashscanTxUrl, isTokenAssociated, networkConfig, requireEnv } from "@decomp/hedera-x402";
 import { privyIdentity } from "@decomp/privy-hedera";
+import { connectBridge } from "./bridge-client";
 import { JobQueue, paidSeconds, type MeteredJob } from "./job-queue";
 import { describePrice, hbarPrice, parseJobRequest, parseOffers, priceIn, tickAmount } from "./pricing";
 import { RunnerClient, RunnerError, type RunnerJob } from "./runner-client";
@@ -29,8 +30,11 @@ const offers = parseOffers(
   computeTokenId && tokenSpec ? { tokenId: computeTokenId, spec: tokenSpec } : undefined,
 );
 const runner = new RunnerClient(process.env.JOB_RUNNER_URL ?? "http://127.0.0.1:8100");
-const publicUrl = process.env.PUBLIC_URL ?? `http://127.0.0.1:${port}`;
 const registryTopicId = process.env.REGISTRY_TOPIC_ID || undefined;
+// Behind NAT with no domain of your own, connect out to a bridge (apps/bridge) instead of
+// advertising an address nobody outside this machine can reach.
+const bridgeUrl = process.env.BRIDGE_URL || undefined;
+const publicUrl = bridgeUrl ? `${bridgeUrl}/p/${payTo}` : (process.env.PUBLIC_URL ?? `http://127.0.0.1:${port}`);
 
 type RegistrationState = {
   status: "disabled" | "pending" | "published" | "failed";
@@ -243,9 +247,9 @@ if (computeTokenId && tokenSpec) {
   );
 }
 
-if (registryTopicId) {
+if (registryTopicId || bridgeUrl) {
   // Signed by the provider's own Privy wallet: readers only trust registrations paid for by the
-  // account they advertise.
+  // account they advertise, and only this identity can authenticate the bridge connection as it.
   void (async () => {
     let client;
     try {
@@ -253,25 +257,32 @@ if (registryTopicId) {
       if (identity.accountId !== payTo) {
         throw new Error(`${providerName}_WALLET_ID signs for ${identity.accountId}, not ${payTo}`);
       }
-      client = identity.createClient();
-      const { sequenceNumber, transactionId } = await publishRegistration(client, registryTopicId, {
-        schema: REGISTRATION_SCHEMA,
-        providerId: providerName,
-        hederaAccount: payTo,
-        endpoint: publicUrl,
-        network,
-        jobTypes: [...offers.values()].map(o => ({
-          name: o.jobType,
-          pricePerSecTinybars: hbarPrice(o).perSecond.toString(),
-          tickSeconds: o.tickSeconds,
-        })),
-        publishedAt: new Date().toISOString(),
-      });
-      registration = { status: "published", sequenceNumber, transactionId };
-      console.log(`[provider] registered on HCS topic ${registryTopicId} (seq ${sequenceNumber}, tx ${transactionId})`);
+
+      if (bridgeUrl) {
+        connectBridge(bridgeUrl, identity, providerName, port, line => console.log(`[provider] ${line}`));
+      }
+
+      if (registryTopicId) {
+        client = identity.createClient();
+        const { sequenceNumber, transactionId } = await publishRegistration(client, registryTopicId, {
+          schema: REGISTRATION_SCHEMA,
+          providerId: providerName,
+          hederaAccount: payTo,
+          endpoint: publicUrl,
+          network,
+          jobTypes: [...offers.values()].map(o => ({
+            name: o.jobType,
+            pricePerSecTinybars: hbarPrice(o).perSecond.toString(),
+            tickSeconds: o.tickSeconds,
+          })),
+          publishedAt: new Date().toISOString(),
+        });
+        registration = { status: "published", sequenceNumber, transactionId };
+        console.log(`[provider] registered on HCS topic ${registryTopicId} (seq ${sequenceNumber}, tx ${transactionId})`);
+      }
     } catch (error) {
-      registration = { status: "failed", error: error instanceof Error ? error.message : String(error) };
-      console.error("[provider] registry publish failed:", error);
+      if (registryTopicId) registration = { status: "failed", error: error instanceof Error ? error.message : String(error) };
+      console.error("[provider] registry publish or bridge connect failed:", error);
     } finally {
       client?.close();
     }

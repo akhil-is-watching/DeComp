@@ -59,6 +59,7 @@
       "name": "@decomp/provider",
       "version": "0.1.0",
       "dependencies": {
+        "@decomp/bridge-protocol": "workspace:*",
         "@decomp/hcs-registry": "workspace:*",
         "@decomp/hedera-x402": "workspace:*",
         "@decomp/privy-hedera": "workspace:*",
