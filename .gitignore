@@ -43,6 +43,9 @@ services/job-runner/outputs/
 .cache
 *.tsbuildinfo
 
+# connector OAuth/user state (wallet ids, tokens) — not model weights, but still not for git
+apps/connector/data/*.sqlite*
+
 # IntelliJ based IDEs
 .idea
 
