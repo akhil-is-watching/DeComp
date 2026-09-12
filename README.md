@@ -35,26 +35,35 @@ the same object from an OAuth session's Privy user without changing the agent, p
 
 ## Live on Hedera testnet
 
+Every account below is keyed by a Privy wallet, and every transaction linked here was signed
+inside Privy.
+
 | What | Link |
 |---|---|
 | Blocky402 fee payer | [0.0.7162784](https://hashscan.io/testnet/account/0.0.7162784) |
-| Provider registry topic | [0.0.10482100](https://hashscan.io/testnet/topic/0.0.10482100) |
+| Agent | [0.0.10490089](https://hashscan.io/testnet/account/0.0.10490089) |
+| Providers | [0.0.10490091](https://hashscan.io/testnet/account/0.0.10490091), [0.0.10490092](https://hashscan.io/testnet/account/0.0.10490092), [0.0.10490095](https://hashscan.io/testnet/account/0.0.10490095) |
+| Operator (treasury) | [0.0.10490087](https://hashscan.io/testnet/account/0.0.10490087) |
+| Provider registry topic | [0.0.10490097](https://hashscan.io/testnet/topic/0.0.10490097) |
 | Job audit topic | [0.0.10482650](https://hashscan.io/testnet/topic/0.0.10482650) |
-| Compute token (DCC) | [0.0.10482651](https://hashscan.io/testnet/token/0.0.10482651) |
-| A paid GPU job | [0.0.7162784@1789151420.640010073](https://hashscan.io/testnet/transaction/0.0.7162784@1789151420.640010073) |
-| One job, four streamed ticks | [tick 1](https://hashscan.io/testnet/transaction/0.0.7162784@1789152917.726789395), [2](https://hashscan.io/testnet/transaction/0.0.7162784@1789152923.314812425), [3](https://hashscan.io/testnet/transaction/0.0.7162784@1789152927.337487032), [4](https://hashscan.io/testnet/transaction/0.0.7162784@1789152934.051286630) |
-| A job paid entirely in DCC | [tick 1](https://hashscan.io/testnet/transaction/0.0.7162784@1789154031.435050243), [2](https://hashscan.io/testnet/transaction/0.0.7162784@1789154034.468670607), [3](https://hashscan.io/testnet/transaction/0.0.7162784@1789154039.545078109) |
+| Compute token (DCC) | [0.0.10490098](https://hashscan.io/testnet/token/0.0.10490098) |
+| A paid GPU job | [0.0.7162784@1789178567.035930527](https://hashscan.io/testnet/transaction/0.0.7162784@1789178567.035930527) |
+| Routed to the cheapest provider, then a fallback payment | [0.0.7162784@1789178826.107845366](https://hashscan.io/testnet/transaction/0.0.7162784@1789178826.107845366) |
+| One job in three streamed HBAR ticks (audit seq 8) | [tick 1](https://hashscan.io/testnet/transaction/0.0.7162784@1789178972.245387934), [2](https://hashscan.io/testnet/transaction/0.0.7162784@1789178978.208479584), [3](https://hashscan.io/testnet/transaction/0.0.7162784@1789178983.334990514) |
+| A job paid entirely in DCC (audit seq 7) | [tick 1](https://hashscan.io/testnet/transaction/0.0.7162784@1789178949.501231845), [2](https://hashscan.io/testnet/transaction/0.0.7162784@1789178956.447225748), [3](https://hashscan.io/testnet/transaction/0.0.7162784@1789178958.159679750) |
 
 Each build phase is tagged where its validation gate passed on testnet:
 [`v0.1.0-qualified`](../../releases/tag/v0.1.0-qualified) (paid job end to end),
 [`v0.2.0`](../../releases/tag/v0.2.0) (discovery and routing),
 [`v0.3.0`](../../releases/tag/v0.3.0) (metered ticks),
 [`v0.4.0`](../../releases/tag/v0.4.0) (audit trail and token payments),
-[`v0.5.0`](../../releases/tag/v0.5.0) (submission docs and fresh-clone reproduction).
+[`v0.5.0`](../../releases/tag/v0.5.0) (submission docs and fresh-clone reproduction),
+[`v0.6.0`](../../releases/tag/v0.6.0) (Privy wallets, no private keys).
 
-Those settlements were produced by the earlier key-based accounts. Signing moved to Privy
-afterwards; the signer is covered by unit tests, and the phase gates are re-run against
-Privy-keyed accounts once an app's credentials are configured.
+All four gates were re-run on 2026-09-12 against these Privy-keyed accounts: three paid jobs
+end to end, discovery and fallback, a job settling five ticks with billing matching measured
+time exactly, and a job paid entirely in DCC with its audit record reconstructed from the chain.
+The settlements from the earlier key-based accounts remain valid and are cited in the tags above.
 
 ## How a payment works
 

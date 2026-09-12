@@ -31,6 +31,9 @@ digest of a transaction body, which Privy's `raw_sign` produces directly. Two de
 - **One signature per node.** A Hedera transaction carries a separate body per consensus node, and
   the SDK asks the signer for each one. A default freeze would cost seven Privy calls per payment,
   so payments are built for two nodes: two signatures, with a spare node for the facilitator.
+  The node list is deduplicated first: the client's network map is keyed by address and a node
+  answers on several, so taking the same account twice would build two bodies for one node and the
+  signed payload would fail to parse.
 
 Signatures are verified locally against the account's public key before anything is sent, so a
 mismatched wallet fails immediately instead of as an opaque on-chain `INVALID_SIGNATURE`.
