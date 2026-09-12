@@ -1,11 +1,13 @@
-/** Phase 0 gate: facilitator reachable, accounts funded, GPU backends usable, workspace installs. */
+/** Phase 0 gate: facilitator reachable, Privy wallets key their accounts, GPU backends usable, workspace installs. */
 import { join } from "node:path";
 import { $ } from "bun";
-import { getHbarBalance, formatTinybars, networkConfig } from "@decomp/hedera-x402";
+import { formatTinybars, getHbarBalance, mirrorGet, networkConfig } from "@decomp/hedera-x402";
+import { privyClientFromEnv, walletFromEnv } from "@decomp/privy-hedera";
 
 const root = join(import.meta.dir, "..");
 const python = join(root, "services", "job-runner", ".venv", "bin", "python");
 const { network, facilitatorUrl } = networkConfig();
+const ROLES = ["OPERATOR", "AGENT", "PROVIDER_1", "PROVIDER_2", "PROVIDER_3"];
 
 const checks: [name: string, run: () => Promise<string>][] = [
   [
@@ -18,18 +20,22 @@ const checks: [name: string, run: () => Promise<string>][] = [
       return `feePayer ${kind.extra.feePayer}`;
     },
   ],
-  ...["OPERATOR_ID", "AGENT_ACCOUNT_ID", "PROVIDER_1_ACCOUNT_ID", "PROVIDER_2_ACCOUNT_ID", "PROVIDER_3_ACCOUNT_ID"].map(
-    (envVar): [string, () => Promise<string>] => [
-      `${envVar} has a non-zero HBAR balance (mirror node)`,
-      async () => {
-        const accountId = process.env[envVar];
-        if (!accountId) throw new Error(`${envVar} is not set — run \`bun run setup:hedera\``);
-        const balance = await getHbarBalance(accountId);
-        if (balance <= 0n) throw new Error(`${accountId} balance is 0`);
-        return `${accountId} ${formatTinybars(balance)}`;
-      },
-    ],
-  ),
+  ...ROLES.map((role): [string, () => Promise<string>] => [
+    `${role} signs with its Privy wallet and has HBAR`,
+    async () => {
+      const privy = privyClientFromEnv();
+      const wallet = await walletFromEnv(privy, role);
+      // The account must be keyed to the wallet, or nothing it signs will be accepted.
+      const account = await mirrorGet<{ key: { key: string } | null }>(`/api/v1/accounts/${wallet.accountId}`);
+      const onChain = account.key?.key?.toLowerCase();
+      if (!onChain || !wallet.publicKey.toStringRaw().toLowerCase().endsWith(onChain)) {
+        throw new Error(`${wallet.accountId} is not keyed to Privy wallet ${wallet.walletId} — re-run \`bun run setup:privy\``);
+      }
+      const balance = await getHbarBalance(wallet.accountId);
+      if (balance <= 0n) throw new Error(`${wallet.accountId} balance is 0`);
+      return `${wallet.accountId} ${formatTinybars(balance)} via wallet ${wallet.walletId}`;
+    },
+  ]),
   [
     "MLX default device is a GPU",
     async () => {

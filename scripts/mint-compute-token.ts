@@ -2,18 +2,12 @@
  * Mints the DeComp Compute Credit (DCC), an HTS fungible token agents can pay providers with
  * instead of HBAR. Associates the agent and every provider with it and tops up the agent's
  * balance. Safe to re-run: an existing COMPUTE_TOKEN_ID is reused.
+ *
+ * Every signature comes from a Privy wallet; the operator is the token's treasury.
  */
 import { AccountId, TokenCreateTransaction, TokenId, TokenSupplyType, TokenType, TransferTransaction } from "@hiero-ledger/sdk";
-import {
-  accountFromEnv,
-  associateTokens,
-  getTokenBalance,
-  mirrorGet,
-  networkConfig,
-  parsePrivateKey,
-  requireEnv,
-  sdkClient,
-} from "@decomp/hedera-x402";
+import { associateTokens, getTokenBalance, mirrorGet, networkConfig } from "@decomp/hedera-x402";
+import { privyIdentity } from "@decomp/privy-hedera";
 import { upsertEnv } from "./lib/env-file";
 
 const DECIMALS = 2;
@@ -25,8 +19,8 @@ const ROLES = ["AGENT", "PROVIDER_1", "PROVIDER_2", "PROVIDER_3"];
 const formatDcc = (units: bigint) => `${units / UNIT}.${(units % UNIT).toString().padStart(DECIMALS, "0")} DCC`;
 
 const { hashscan } = networkConfig();
-const operator = { accountId: requireEnv("OPERATOR_ID"), privateKey: parsePrivateKey(requireEnv("OPERATOR_KEY")) };
-const client = sdkClient(operator);
+const operator = await privyIdentity("OPERATOR");
+const client = operator.createClient();
 
 try {
   let tokenId = process.env.COMPUTE_TOKEN_ID;
@@ -45,8 +39,8 @@ try {
       .setTokenType(TokenType.FungibleCommon)
       .setSupplyType(TokenSupplyType.Infinite)
       .setTreasuryAccountId(operator.accountId)
-      .setAdminKey(operator.privateKey.publicKey)
-      .setSupplyKey(operator.privateKey.publicKey)
+      .setAdminKey(operator.wallet.publicKey)
+      .setSupplyKey(operator.wallet.publicKey)
       .execute(client);
     tokenId = (await response.getReceipt(client)).tokenId!.toString();
     await upsertEnv({ COMPUTE_TOKEN_ID: tokenId });
@@ -54,12 +48,18 @@ try {
   }
 
   for (const role of ROLES) {
-    const account = accountFromEnv(role);
-    const associated = await associateTokens(client, account, [tokenId]);
-    console.log(`  ${role.padEnd(10)} ${account.accountId.padEnd(12)} ${associated.length ? "associated" : "already associated"}`);
+    const identity = await privyIdentity(role);
+    const roleClient = identity.createClient();
+    try {
+      // The account is its own client's operator, so executing the association signs it in Privy.
+      const associated = await associateTokens(roleClient, { accountId: identity.accountId }, [tokenId]);
+      console.log(`  ${role.padEnd(10)} ${identity.accountId.padEnd(12)} ${associated.length ? "associated" : "already associated"}`);
+    } finally {
+      roleClient.close();
+    }
   }
 
-  const agent = accountFromEnv("AGENT");
+  const agent = await privyIdentity("AGENT");
   // The mirror node lags consensus by a few seconds; a stale read only means a slightly larger top-up.
   const balance = (await getTokenBalance(agent.accountId, tokenId)) ?? 0n;
   if (balance < AGENT_TARGET_BALANCE) {

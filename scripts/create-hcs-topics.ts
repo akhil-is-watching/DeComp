@@ -1,6 +1,7 @@
 /** Creates the HCS topics once and records their ids in .env. Safe to re-run. */
 import { TopicCreateTransaction } from "@hiero-ledger/sdk";
-import { mirrorGet, networkConfig, parsePrivateKey, requireEnv, sdkClient } from "@decomp/hedera-x402";
+import { mirrorGet, networkConfig } from "@decomp/hedera-x402";
+import { privyIdentity } from "@decomp/privy-hedera";
 import { upsertEnv } from "./lib/env-file";
 
 const topics = [
@@ -9,8 +10,8 @@ const topics = [
 ];
 
 const { hashscan } = networkConfig();
-const operator = { accountId: requireEnv("OPERATOR_ID"), privateKey: parsePrivateKey(requireEnv("OPERATOR_KEY")) };
-const client = sdkClient(operator);
+const operator = await privyIdentity("OPERATOR");
+const client = operator.createClient();
 
 try {
   for (const { envVar, memo } of topics) {
@@ -28,7 +29,7 @@ try {
     // key lets the operator update or delete the topic.
     const response = await new TopicCreateTransaction()
       .setTopicMemo(memo)
-      .setAdminKey(operator.privateKey.publicKey)
+      .setAdminKey(operator.wallet.publicKey)
       .execute(client);
     const { topicId } = await response.getReceipt(client);
     await upsertEnv({ [envVar]: topicId!.toString() });

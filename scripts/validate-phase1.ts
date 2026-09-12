@@ -1,18 +1,19 @@
 /**
  * Phase 1 gate: the provider issues a 402 with the facilitator's fee payer, an agent-signed
  * payment passes /verify, and three paid GPU jobs complete back-to-back with real, distinct
- * on-chain settlements. Starts the job runner and provider if they aren't already running.
+ * on-chain settlements. Every signature is made by the agent's Privy wallet.
+ * Starts the job runner and provider if they aren't already running.
  */
 import { decodePaymentRequiredHeader } from "@x402/core/http";
 import {
   HBAR_ASSET,
-  accountFromEnv,
   createFacilitatorClient,
   createPayingClient,
   fetchFacilitatorFeePayer,
   hbarToTinybars,
   paymentTransactionId,
 } from "@decomp/hedera-x402";
+import { privyIdentity } from "@decomp/privy-hedera";
 import { runJob } from "@decomp/agent";
 import { allPaymentsSettled, createGate, errorMessage } from "./lib/gate";
 import { ensureServices, providerService, runnerService } from "./lib/services";
@@ -20,8 +21,9 @@ import { ensureServices, providerService, runnerService } from "./lib/services";
 const PROVIDER_PORT = 4021;
 const providerUrl = `http://127.0.0.1:${PROVIDER_PORT}`;
 const job = { jobType: "benchmark", params: { duration_s: 3 } };
-const maxTinybarsPerPayment = hbarToTinybars(1);
+const maxAmountPerPayment = hbarToTinybars(1);
 const gate = createGate(1);
+const identity = await privyIdentity("AGENT");
 
 const { stop } = await ensureServices([runnerService(), providerService("PROVIDER_1", PROVIDER_PORT)]);
 try {
@@ -43,19 +45,19 @@ try {
   if (paymentRequired) {
     try {
       const agent = createPayingClient({
-        account: accountFromEnv("AGENT"),
-        allowedAssets: [{ asset: HBAR_ASSET, maxAmountPerPayment: maxTinybarsPerPayment }],
+        signer: identity.paymentSigner,
+        allowedAssets: [{ asset: HBAR_ASSET, maxAmountPerPayment }],
       });
       const payload = await agent.createPayload(paymentRequired);
       const verify = await createFacilitatorClient().verify(payload, payload.accepted);
       gate.record(
-        "agent-signed TransferTransaction passes facilitator /verify",
+        "Privy-signed TransferTransaction passes facilitator /verify",
         verify.isValid,
-        `${paymentTransactionId(payload)} isValid=${verify.isValid}` +
+        `${paymentTransactionId(payload)} signed by wallet ${identity.wallet.walletId}, isValid=${verify.isValid}` +
           (verify.invalidReason ? ` ${verify.invalidReason}: ${verify.invalidMessage ?? ""}` : ""),
       );
     } catch (error) {
-      gate.record("agent-signed TransferTransaction passes facilitator /verify", false, errorMessage(error));
+      gate.record("Privy-signed TransferTransaction passes facilitator /verify", false, errorMessage(error));
     }
   }
 
@@ -66,8 +68,8 @@ try {
       const summary = await runJob({
         providerUrl,
         ...job,
-        account: accountFromEnv("AGENT"),
-        maxAmountPerPayment: maxTinybarsPerPayment,
+        identity,
+        maxAmountPerPayment,
         log: line => console.log(`   [${run}] ${line}`),
       });
       const result = summary.result as { device?: string; iterations?: number } | undefined;

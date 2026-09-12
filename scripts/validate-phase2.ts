@@ -7,7 +7,8 @@ import { $, type Subprocess } from "bun";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readRegistry } from "@decomp/hcs-registry";
-import { accountFromEnv, hederaNetwork, requireEnv } from "@decomp/hedera-x402";
+import { hederaNetwork, requireEnv } from "@decomp/hedera-x402";
+import { privyIdentity } from "@decomp/privy-hedera";
 import { discoverAndRunJob, discoverProviders } from "@decomp/agent";
 import { allPaymentsSettled, createGate, errorMessage } from "./lib/gate";
 import { ROOT, ensureServices, providerService, runnerService, waitForHealthy } from "./lib/services";
@@ -84,13 +85,13 @@ try {
     output.match(/\d+ pass[\s\S]*?\d+ fail/)?.[0].replace(/\s+/g, " ") ?? `exit ${unit.exitCode}`,
   );
 
-  const agent = accountFromEnv("AGENT");
+  const agent = await privyIdentity("AGENT");
   try {
     const { summary, chosen } = await discoverAndRunJob({
       topicId,
       jobType: "mandelbrot",
       params: { width: 512, height: 512, max_iter: 400 },
-      account: agent,
+      identity: agent,
       log: agentLog("route"),
     });
     const png = (summary.result as { png_base64?: string } | undefined)?.png_base64;
@@ -116,7 +117,7 @@ try {
         topicId,
         jobType: "benchmark",
         params: { duration_s: 2 },
-        account: agent,
+        identity: agent,
         log: agentLog("fallback"),
       });
       const skippedIds = skipped.map(s => s.candidate.providerId).join(", ");

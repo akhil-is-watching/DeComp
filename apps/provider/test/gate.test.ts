@@ -5,6 +5,7 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { PrivateKey } from "@hiero-ledger/sdk";
 import { decodePaymentRequiredHeader } from "@x402/core/http";
+import { createClientHederaSigner } from "@x402/hedera";
 import { createPayingClient, fetchFacilitatorFeePayer, hbarToTinybars } from "@decomp/hedera-x402";
 import { ensureServices, providerService, runnerService } from "../../../scripts/lib/services";
 
@@ -71,7 +72,8 @@ test("malformed payment header is treated as unpaid", async () => {
 // The hosted facilitator's /verify accepts this; the provider's own signature check must not.
 test("payment signed with the wrong key is rejected before any job starts", async () => {
   const impostor = createPayingClient({
-    account: { accountId: "0.0.3", privateKey: PrivateKey.generateECDSA() },
+    // Stands in for an attacker: a key-based signer holding the wrong key for account 0.0.3.
+    signer: createClientHederaSigner("0.0.3", PrivateKey.generateECDSA(), { network: "hedera:testnet" }),
     allowedAssets: [{ asset: "0.0.0", maxAmountPerPayment: hbarToTinybars(1) }],
   });
   const { response, body, settlement } = await impostor.request(`${BASE}/jobs`, {

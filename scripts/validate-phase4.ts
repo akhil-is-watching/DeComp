@@ -9,7 +9,6 @@ import { decodePaymentRequiredHeader } from "@x402/core/http";
 import { readAudits, type AuditEntry } from "@decomp/hcs-registry";
 import {
   HBAR_ASSET,
-  accountFromEnv,
   createFacilitatorClient,
   createPayingClient,
   getTokenBalance,
@@ -17,6 +16,7 @@ import {
   paymentTransactionId,
   requireEnv,
 } from "@decomp/hedera-x402";
+import { privyIdentity } from "@decomp/privy-hedera";
 import { runJob, type JobSummary } from "@decomp/agent";
 import { allPaymentsSettled, createGate, errorMessage } from "./lib/gate";
 import { ROOT, ensureServices, providerService, runnerService } from "./lib/services";
@@ -33,7 +33,7 @@ const TOKEN_PER_SEC = 5n; // 0.25 DCC per tick
 const JOB = { jobType: "benchmark", params: { duration_s: 12 } }; // three 5s ticks
 
 const gate = createGate(4);
-const agent = accountFromEnv("AGENT");
+const agent = await privyIdentity("AGENT");
 const agentLog = (tag: string) => (line: string) => console.log(`   [${tag}] ${line}`);
 
 async function waitForAudit(jobId: string, afterTimestamp: string): Promise<AuditEntry | undefined> {
@@ -98,20 +98,20 @@ try {
   if (paymentRequired && tokenOption) {
     try {
       const client = createPayingClient({
-        account: agent,
+        signer: agent.paymentSigner,
         allowedAssets: [{ asset: tokenId, maxAmountPerPayment: BigInt(tokenOption.amount) }],
         preferredAsset: tokenId,
       });
       const payload = await client.createPayload(paymentRequired);
       const verify = await createFacilitatorClient().verify(payload, payload.accepted);
       gate.record(
-        "a payment in the compute token passes facilitator /verify",
+        "a Privy-signed payment in the compute token passes facilitator /verify",
         verify.isValid && payload.accepted.asset === tokenId,
         `${paymentTransactionId(payload)} for ${payload.accepted.amount} of ${payload.accepted.asset}, isValid=${verify.isValid}` +
           (verify.invalidReason ? ` ${verify.invalidReason}: ${verify.invalidMessage ?? ""}` : ""),
       );
     } catch (error) {
-      gate.record("a payment in the compute token passes facilitator /verify", false, errorMessage(error));
+      gate.record("a Privy-signed payment in the compute token passes facilitator /verify", false, errorMessage(error));
     }
   }
 
@@ -127,7 +127,7 @@ try {
       const summary = await runJob({
         providerUrl,
         ...JOB,
-        account: agent,
+        identity: agent,
         asset,
         maxAmountPerPayment: perSecond * BigInt(TICK_SECONDS),
         auditTopicId,

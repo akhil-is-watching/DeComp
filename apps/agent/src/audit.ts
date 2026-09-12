@@ -1,6 +1,6 @@
-/** Publishes each finished job's payment record to the HCS audit topic, signed and paid for by the agent. */
+/** Publishes each finished job's payment record to the HCS audit topic, signed by the agent's Privy wallet. */
 import { AUDIT_SCHEMA, publishAudit, type JobAudit, type PublishResult } from "@decomp/hcs-registry";
-import { sdkClient, type AccountCredentials } from "@decomp/hedera-x402";
+import type { HederaIdentity } from "@decomp/privy-hedera";
 import type { JobSummary } from "./run-job";
 
 export function buildAudit(summary: JobSummary, agentAccount: string): JobAudit {
@@ -21,10 +21,10 @@ export function buildAudit(summary: JobSummary, agentAccount: string): JobAudit 
   };
 }
 
-export async function publishJobAudit(topicId: string, account: AccountCredentials, summary: JobSummary): Promise<PublishResult> {
-  const client = sdkClient(account);
+export async function publishJobAudit(topicId: string, identity: HederaIdentity, summary: JobSummary): Promise<PublishResult> {
+  const client = identity.createClient();
   try {
-    return await publishAudit(client, topicId, buildAudit(summary, account.accountId));
+    return await publishAudit(client, topicId, buildAudit(summary, identity.accountId));
   } finally {
     client.close();
   }

@@ -9,6 +9,7 @@
   "dependencies": {
     "@decomp/hcs-registry": "workspace:*",
     "@decomp/hedera-x402": "workspace:*",
+    "@decomp/privy-hedera": "workspace:*",
     "@x402/core": "2.25.0"
   }
 }

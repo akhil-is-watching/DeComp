@@ -1,6 +1,8 @@
 /**
  * Agent CLI: pay for one metered GPU job and print the result.
  *
+ * The agent signs with its Privy wallet (AGENT_WALLET_ID); no private key is read from anywhere.
+ *
  *   bun run agent -- --job mandelbrot --save out/mandelbrot.png        # route via the HCS registry
  *   bun run agent -- --provider http://127.0.0.1:4021 --job benchmark  # use one provider directly
  *   bun run agent -- --job benchmark --budget-hbar 0.2                  # stop paying after 0.2 ℏ
@@ -11,7 +13,8 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { parseArgs } from "node:util";
-import { HBAR_ASSET, accountFromEnv, hbarToTinybars } from "@decomp/hedera-x402";
+import { HBAR_ASSET, hbarToTinybars } from "@decomp/hedera-x402";
+import { privyIdentity } from "@decomp/privy-hedera";
 import { discoverAndRunJob } from "./route-job";
 import { runJob, type JobSummary } from "./run-job";
 
@@ -39,9 +42,12 @@ const { values } = parseArgs({
 const log = values.json ? () => {} : console.log;
 
 const HINTS: [RegExp, string][] = [
+  [/PRIVY_APP_ID|PRIVY_APP_SECRET/i, "set PRIVY_APP_ID and PRIVY_APP_SECRET from dashboard.privy.io in .env"],
+  [/_WALLET_ID|_ACCOUNT_ID/i, "run `bun run setup:privy` to create the Privy wallets and their Hedera accounts"],
+  [/Privy API 401|Privy API 403/i, "the Privy app credentials were rejected; check PRIVY_APP_ID and PRIVY_APP_SECRET"],
+  [/signature Hedera rejects/i, "the Privy wallet doesn't match the Hedera account it signs for; re-run `bun run setup:privy`"],
   [/TOKEN_NOT_ASSOCIATED/i, "an account isn't associated with the token; run `bun run setup:token`"],
   [/INSUFFICIENT|preflight/i, "check the agent's balance, and its token association when paying in a token"],
-  [/signature/i, "the payment signature was rejected; check AGENT_PRIVATE_KEY matches AGENT_ACCOUNT_ID"],
   [/spendControls|maxAmountPerPayment/i, "the provider's price is above the agent's per-payment cap (--max-hbar or --max-amount)"],
   [/no eligible provider|does not offer/i, "no running provider offers that job type at that price; is `bun run dev` running?"],
   [/Unable to connect|ECONNREFUSED|unavailable/i, "the provider isn't reachable; start one with `bun run dev`"],
@@ -63,10 +69,11 @@ function describeOutcome(summary: JobSummary): string | undefined {
 try {
   const asset = values.asset;
   const payingHbar = asset === HBAR_ASSET;
+  const identity = await privyIdentity("AGENT");
   const common = {
     jobType: values.job,
     params: JSON.parse(values.params),
-    account: accountFromEnv("AGENT"),
+    identity,
     maxBudget: values.budget
       ? BigInt(values.budget)
       : values["budget-hbar"]
@@ -77,6 +84,7 @@ try {
     log,
   };
   const topicId = values.topic ?? process.env.REGISTRY_TOPIC_ID;
+  log(`wallet  ${identity.accountId} signs with Privy wallet ${identity.wallet.walletId}`);
 
   let summary: JobSummary;
   if (values.provider || !topicId) {

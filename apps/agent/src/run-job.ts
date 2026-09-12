@@ -2,6 +2,8 @@
  * Agent job flow: quote → pay the first tick (x402) → keep paying a tick just before each paid
  * window runs out → result → audit record on HCS. The agent can stop paying at a budget ceiling;
  * the provider then stops the job itself.
+ *
+ * Every signature is made by the identity's Privy wallet; no key exists on this machine.
  */
 import {
   HBAR_ASSET,
@@ -10,8 +12,8 @@ import {
   formatTinybars,
   hashscanTxUrl,
   waitForMirrorTransaction,
-  type AccountCredentials,
 } from "@decomp/hedera-x402";
+import type { HederaIdentity } from "@decomp/privy-hedera";
 import { publishJobAudit } from "./audit";
 import { ProviderUnavailableError } from "./router";
 
@@ -19,7 +21,8 @@ export type RunJobOptions = {
   providerUrl: string;
   jobType: string;
   params: Record<string, unknown>;
-  account: AccountCredentials;
+  /** Who pays: a Privy wallet bound to a Hedera account. */
+  identity: HederaIdentity;
   /** "0.0.0" for HBAR (the default) or an HTS token id the provider prices in. */
   asset?: string;
   /** Largest single payment (one tick) the agent will sign, in the asset's smallest unit. */
@@ -141,7 +144,7 @@ export async function runJob(options: RunJobOptions): Promise<JobSummary> {
 
   let signed = false;
   const client = createPayingClient({
-    account: options.account,
+    signer: options.identity.paymentSigner,
     allowedAssets: [{ asset, maxAmountPerPayment: options.maxAmountPerPayment }],
     preferredAsset: asset,
     onEvent: event => {
@@ -153,7 +156,7 @@ export async function runJob(options: RunJobOptions): Promise<JobSummary> {
         }
         case "payment_signed":
           signed = true;
-          log(`signed  TransferTransaction ${event.transactionId} for ${event.requirements.amount} of ${event.requirements.asset} by ${event.payer}`);
+          log(`signed  TransferTransaction ${event.transactionId} for ${event.requirements.amount} of ${event.requirements.asset} by ${event.payer} (Privy wallet ${options.identity.wallet.walletId})`);
           break;
         case "payment_settled":
           log(`settled ${hashscanTxUrl(event.settlement.transaction)}`);
@@ -269,7 +272,7 @@ export async function runJob(options: RunJobOptions): Promise<JobSummary> {
 
   if (options.auditTopicId) {
     try {
-      const published = await publishJobAudit(options.auditTopicId, options.account, summary);
+      const published = await publishJobAudit(options.auditTopicId, options.identity, summary);
       summary.audit = { topicId: options.auditTopicId, ...published };
       log(`audit   recorded on HCS topic ${options.auditTopicId} (seq ${published.sequenceNumber}, tx ${published.transactionId})`);
     } catch (error) {

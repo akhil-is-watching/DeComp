@@ -1,14 +1,16 @@
 /**
  * Paying HTTP client for agents. Performs the x402 exchange step by step (rather than via
  * wrapFetchWithPayment) so every stage — challenge, signature, settlement — is observable.
+ *
+ * The signer is injected, so payments can be signed by a Privy wallet or by any other
+ * x402 Hedera signer without this layer knowing which.
  */
 import { Transaction } from "@hiero-ledger/sdk";
 import { x402Client, x402HTTPClient } from "@x402/core/client";
 import type { PaymentPayload, PaymentRequired, PaymentRequirements, SettleResponse } from "@x402/core/types";
-import { createClientHederaSigner } from "@x402/hedera";
+import type { ClientHederaSigner } from "@x402/hedera";
 import { ExactHederaScheme } from "@x402/hedera/exact/client";
 import { hederaNetwork, type HederaNetwork } from "./config";
-import type { AccountCredentials } from "./keys";
 
 export type PaymentEvent =
   | { type: "payment_required"; url: string; paymentRequired: PaymentRequired }
@@ -24,7 +26,8 @@ export type AssetCap = {
 };
 
 export type PayingClientOptions = {
-  account: AccountCredentials;
+  /** Signs each payment, e.g. a Privy-backed signer. */
+  signer: ClientHederaSigner;
   network?: HederaNetwork;
   /** Assets the client may pay with. The x402 client refuses anything else before signing. */
   allowedAssets: AssetCap[];
@@ -57,10 +60,9 @@ export function paymentTransactionId(payload: PaymentPayload): string {
 
 export function createPayingClient(options: PayingClientOptions) {
   const network = options.network ?? hederaNetwork();
-  const signer = createClientHederaSigner(options.account.accountId, options.account.privateKey, { network });
   const allowed = new Set(options.allowedAssets.map(a => a.asset));
   const client = x402Client.fromConfig({
-    schemes: [{ network, client: new ExactHederaScheme(signer) }],
+    schemes: [{ network, client: new ExactHederaScheme(options.signer) }],
     spendControls: {
       allowedAssets: options.allowedAssets.map(({ asset, maxAmountPerPayment }) => ({
         network,
@@ -97,7 +99,7 @@ export function createPayingClient(options: PayingClientOptions) {
       type: "payment_signed",
       requirements: payload.accepted,
       transactionId: paymentTransactionId(payload),
-      payer: signer.accountId,
+      payer: options.signer.accountId,
     });
 
     const headers = new Headers(init.headers);
@@ -119,7 +121,7 @@ export function createPayingClient(options: PayingClientOptions) {
   }
 
   return {
-    accountId: signer.accountId,
+    accountId: options.signer.accountId,
     network,
     request,
     /** Signs a payment for a challenge without sending it, e.g. to check it against /verify. */

@@ -6,7 +6,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { runJob } from "@decomp/agent";
-import { accountFromEnv } from "@decomp/hedera-x402";
+import { privyIdentity } from "@decomp/privy-hedera";
 import { RunnerClient, TERMINAL_STATUSES, type RunnerJob } from "../apps/provider/src/runner-client";
 import { allPaymentsSettled, createGate, errorMessage } from "./lib/gate";
 import { ROOT, ensureServices, providerService, runnerService } from "./lib/services";
@@ -21,7 +21,7 @@ const providerUrl = `http://127.0.0.1:${PORT}`;
 const LONG_JOB = { jobType: "mandelbrot", params: { width: 2048, height: 2048, max_iter: 3500 } };
 
 const gate = createGate(3);
-const agent = accountFromEnv("AGENT");
+const agent = await privyIdentity("AGENT");
 const agentLog = (tag: string) => (line: string) => console.log(`   [${tag}] ${line}`);
 
 /** The runner's own job_finished metering line for a job, from the log of the runner this gate started. */
@@ -75,7 +75,7 @@ try {
     const summary = await runJob({
       providerUrl,
       ...LONG_JOB,
-      account: agent,
+      identity: agent,
       maxAmountPerPayment: TICK_PRICE,
       log: agentLog("metered"),
     });
@@ -114,7 +114,7 @@ try {
     const summary = await runJob({
       providerUrl,
       ...LONG_JOB,
-      account: agent,
+      identity: agent,
       maxAmountPerPayment: TICK_PRICE,
       maxBudget: budget,
       log: agentLog("budget"),
