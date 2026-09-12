@@ -19,6 +19,8 @@ signatures, and `.env` holds no Hedera key material at all.
 - **HBAR or a compute token.** Pay in HBAR or DeComp Compute Credit (DCC), an HTS token.
 - **Independent audit trail.** A standalone script rebuilds each provider's earnings from HCS and
   the mirror node alone.
+- **A Claude connector.** Sign in once with Privy and run paid GPU jobs by chatting — no terminal,
+  no `.env`, no key, on your own DeComp wallet. See [Claude connector](#claude-connector).
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design and trust model.
 
@@ -30,8 +32,9 @@ signers: Hedera ECDSA signatures are secp256k1 over the keccak256 digest of each
 which Privy's `raw_sign` produces directly.
 
 Everything downstream takes a `HederaIdentity` — an account plus a signer — rather than a key.
-Today it is resolved from `<ROLE>_WALLET_ID` in `.env`; a future Claude Code connector can resolve
-the same object from an OAuth session's Privy user without changing the agent, provider, or gates.
+The fixed roles resolve it from `<ROLE>_WALLET_ID` in `.env`; the [Claude connector](#claude-connector)
+resolves the same object from an OAuth-authenticated Privy user instead, without changing the
+agent, provider, or gates at all.
 
 ## Live on Hedera testnet
 
@@ -211,6 +214,38 @@ pays PROVIDER_1 instead.
 A provider only needs its Privy wallet to register on HCS; taking payment needs nothing but its
 account id, since the agent signs and the facilitator submits.
 
+## Claude connector
+
+`apps/connector` is a remote MCP server with its own minimal OAuth 2.1 authorization server in
+front of it, so a person can add DeComp as a **custom connector** in Claude, sign in once with
+Privy, and run paid GPU jobs by chatting — no terminal, no `.env`, no key on their side. Privy
+authenticates the person; the connector then resolves the same `HederaIdentity` shape everything
+else in this project already uses, for a wallet it provisions on their first login. See
+[Architecture: Claude connector](docs/ARCHITECTURE.md#claude-connector) for the full design,
+including the custody tradeoff — it's still an app-owned wallet, same as every other role here.
+
+Setup, beyond the base `.env` above:
+
+```bash
+# Generate a secret for the connector's own OAuth tokens
+echo "CONNECTOR_TOKEN_SECRET=$(openssl rand -hex 32)" >> .env
+
+# From dashboard.privy.io → your app → App settings, copy the verification key into .env as
+# PRIVY_VERIFICATION_KEY (an SPKI PEM; escape its newlines as \n since .env can't hold real ones).
+# Also turn on at least one login method (email is enough) for the app there.
+
+bun run connector          # http://127.0.0.1:4030
+```
+
+claude.ai can't reach `127.0.0.1`, so put a tunnel (e.g. `ngrok http 4030`) in front of it and set
+`CONNECTOR_BASE_URL` to the tunnel's URL before adding it as a connector for real. In Claude:
+Settings → Connectors → Add custom connector → paste the tunnel URL. Claude registers itself
+automatically, opens the login page, and from then on tool calls like "render a mandelbrot at
+2048x2048" or "what's my balance" run as that person's own wallet.
+
+Tools: `run_gpu_job` (pays for and runs a job, capped by `CONNECTOR_MAX_BUDGET_HBAR`; a mandelbrot
+result comes back as an inline image), `list_providers`, `get_wallet_balance`, `get_job_history`.
+
 ## Jobs
 
 Jobs run on the GPU from a fixed menu; parameters are validated by the job runner.
@@ -245,6 +280,7 @@ Stop `bun run dev` before running a gate; the gates start their own services.
 |---|---|
 | `apps/agent` | Agent CLI and library: discovery, routing, tick payments, audit records |
 | `apps/provider` | Provider server: x402 gate, pricing, metered job queue, HCS registration |
+| `apps/connector` | Claude connector: OAuth 2.1 AS/RS + MCP server, Privy login, per-user wallets |
 | `packages/privy-hedera` | Privy wallets as Hedera signers: REST client, key handling, identities |
 | `packages/hedera-x402` | x402 on Hedera: Bun payment gate, paying client, facilitator wiring, mirror and token helpers |
 | `packages/hcs-registry` | HCS schemas for registrations and audit records, publishing, chunk-aware readers |
@@ -278,3 +314,5 @@ Stop `bun run dev` before running a gate; the gates start their own services.
 | `stop running providers first` | Stop `bun run dev` before running a validation gate. |
 | HTTP 429 from the facilitator | Blocky402 testnet allows 100 requests a minute per IP; wait a minute. |
 | A new transaction isn't on HashScan yet | The mirror node trails consensus by a few seconds. |
+| `Missing required env var PRIVY_VERIFICATION_KEY` (connector) | Copy the verification key from dashboard.privy.io → your app → App settings into `.env`. |
+| Claude connector login page shows an error | The Privy app has no login method enabled; turn one on (email is enough) in the Privy dashboard. |

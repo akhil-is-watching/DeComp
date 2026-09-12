@@ -14,6 +14,7 @@ import {
   walletForUser,
   type HederaIdentity,
   type PrivyHederaWallet,
+  type WalletResolver,
 } from "@decomp/privy-hedera";
 import { hederaNetwork } from "@decomp/hedera-x402";
 import { getUser, putUser } from "./db";
@@ -49,11 +50,13 @@ async function resolveWallet(did: string): Promise<PrivyHederaWallet> {
   }
 }
 
-export function getOrCreateUserWallet(did: string): Promise<PrivyHederaWallet> {
+// This is exactly the shape of packages/privy-hedera's WalletResolver — "role" there is any
+// string a wallet is keyed by, and a Privy DID fits that as well as "AGENT" or "PROVIDER_1" do.
+export const getOrCreateUserWallet: WalletResolver = (did: string): Promise<PrivyHederaWallet> => {
   const running = inFlight.get(did) ?? resolveWallet(did).finally(() => inFlight.delete(did));
   inFlight.set(did, running);
   return running;
-}
+};
 
 export async function identityFor(did: string): Promise<HederaIdentity> {
   const wallet = await getOrCreateUserWallet(did);

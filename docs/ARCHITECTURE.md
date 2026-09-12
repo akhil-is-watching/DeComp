@@ -12,6 +12,7 @@ differs from the original [build plan](BUILD_PLAN.md).
 | Job runner | `services/job-runner` | FastAPI sidecar. Runs a fixed menu of jobs (`benchmark`, `mandelbrot`) as killable subprocesses on the Apple GPU (MLX or PyTorch MPS) and meters their wall-clock time. Refuses to run on CPU. |
 | Provider | `apps/provider` | Bun HTTP server that sells jobs. Gates job creation and tick purchases with x402, enforces paid time, and registers itself on HCS. |
 | Agent | `apps/agent` | CLI and library. Discovers providers, pays for jobs tick by tick, confirms settlements on the mirror node, and publishes an audit record. |
+| Connector | `apps/connector` | Claude connector. A remote MCP server fronted by its own minimal OAuth 2.1 AS/RS; a person signs in with Privy and runs jobs by chatting, on a wallet provisioned for them on first login. |
 | `@decomp/privy-hedera` | `packages/privy-hedera` | Privy wallets as Hedera signers: a small REST client, public-key handling, and the `HederaIdentity` every app signs with. |
 | `@decomp/hedera-x402` | `packages/hedera-x402` | x402 on Hedera, built on the official `@x402/core` and `@x402/hedera` packages: a Bun.serve payment gate, a step-by-step paying client, facilitator wiring with a local payer-signature check, and mirror-node and token helpers. |
 | `@decomp/hcs-registry` | `packages/hcs-registry` | HCS message schemas (provider registrations, job audits), publishing, and mirror-node readers that reassemble chunked messages. |
@@ -46,10 +47,10 @@ flowchart LR
 ```
 
 Every component takes a `HederaIdentity`: an account id, an x402 payment signer, and a factory for
-a Hedera client that signs as that account. It is resolved from `<ROLE>_WALLET_ID` and
-`<ROLE>_ACCOUNT_ID` today. A Claude Code connector that authenticates users over OAuth can resolve
-the same object from the caller's Privy user, and nothing downstream changes; that is what the
-`WalletResolver` seam exists for. Delegated user-owned wallets fit the same shape.
+a Hedera client that signs as that account. The fixed roles resolve it from `<ROLE>_WALLET_ID` and
+`<ROLE>_ACCOUNT_ID`; the [Claude connector](#claude-connector) resolves the same object from an
+OAuth-authenticated Privy user's DID instead (`identityForUser` in `packages/privy-hedera`), and
+nothing downstream — `runJob`, `discoverAndRunJob`, the audit publisher — changes at all.
 
 **Bootstrap.** Creating the operator's Hedera account needs an existing funded account, so the
 first `bun run setup:privy` takes `--bootstrap-account` and `--bootstrap-key` on the command line.
@@ -245,6 +246,72 @@ only calls the mirror node:
 It exits non-zero when a record's claimed total differs from the chain, or when a record wasn't
 published by the agent it names.
 
+## Claude connector
+
+`apps/connector` lets a person add DeComp as a **custom connector** in Claude, sign in once with
+Privy, and run paid GPU jobs by chatting, without ever holding a key or touching `.env`. It has two
+jobs: authenticate the person, and serve MCP tool calls on their behalf.
+
+**It is its own OAuth 2.1 authorization server.** Claude's connector flow expects a
+spec-compliant AS — RFC 8414/9728 discovery documents, RFC 7591 dynamic client registration, PKCE
+— and Privy doesn't expose that surface to third-party OAuth clients; it only issues its own access
+tokens to its own logged-in users. So the connector plays the AS role itself, and uses Privy purely
+to authenticate the human behind the scenes:
+
+```mermaid
+sequenceDiagram
+  participant C as Claude
+  participant B as Browser
+  participant S as Connector (AS + RS)
+  participant P as Privy
+
+  C->>S: GET /.well-known/oauth-authorization-server, POST /register
+  S-->>C: client_id
+  C->>B: open /authorize?...&code_challenge=...
+  B->>S: GET /authorize
+  S-->>B: login page
+  B->>P: Privy login (email OTP)
+  P-->>B: Privy access token
+  B->>S: POST /authorize/callback {privyAccessToken, client_id, redirect_uri, code_challenge}
+  Note over S: re-validates client_id/redirect_uri; verifies the Privy token (jose, ES256);<br/>mints a single-use code bound to the user's Privy DID
+  S-->>B: redirect_uri?code=...
+  B->>C: code
+  C->>S: POST /token {code, code_verifier}
+  Note over S: first exchange for this DID provisions their Privy wallet + Hedera account
+  S-->>C: access_token, refresh_token
+  C->>S: POST /mcp (Authorization: Bearer ...)
+  S-->>C: tool result
+```
+
+**Per-user wallets, provisioned lazily.** The first token exchange for a Privy DID gets or creates
+a Privy wallet (`external_id: connector-user-<did>`, the same pattern the fixed roles use), creates
+a funded Hedera testnet account for it (paid for by the existing `OPERATOR` identity, unchanged),
+and associates the compute token and testnet USDC — mirroring exactly what `setup-privy-wallets.ts`
+does for a role, pulled into `packages/privy-hedera`'s `provisionUserIdentity` so both share it.
+The DID → wallet/account mapping is cached in a `bun:sqlite` database (`apps/connector/data/`,
+gitignored); every later login for the same DID reuses it rather than provisioning again.
+
+**The MCP resource.** `/mcp` is Streamable HTTP (JSON-RPC 2.0: `initialize`, `tools/list`,
+`tools/call`), hand-rolled on `Bun.serve` the same way the x402 payment gate is — the MCP SDK's
+`Server`/`StreamableHTTPServerTransport` classes assume Node's `http` types, which fights Bun's
+`routes`-based server the same way official Hono/Express x402 middleware would have. The SDK is
+still used for its types (`Tool`, `CallToolResult`, the JSON-RPC envelope), imported from its
+pure-Zod `types.js` entrypoint, which pulls in nothing but `zod` — no Node built-ins, no runtime
+cost. A missing or invalid bearer token gets the spec's `401` with
+`WWW-Authenticate: Bearer resource_metadata="<base>/.well-known/oauth-protected-resource"`.
+
+**Tools.** `run_gpu_job` (the main one — routes via the HCS registry or a given provider URL, pays
+with the caller's own identity, and turns a mandelbrot result's `png_base64` into an inline MCP
+image block so it renders in the chat), `list_providers`, `get_wallet_balance`, `get_job_history`.
+`run_gpu_job`'s params are validated against the exact ranges `services/job-runner` enforces before
+any network call, and its budget is clamped to `CONNECTOR_MAX_BUDGET_HBAR` regardless of what's
+asked for — a prompt can't be talked into an unbounded paid job.
+
+**Two tradeoffs worth naming plainly**, folded into the trust model below: every per-user wallet is
+still **app-owned** — OAuth login authenticates a person and gives them a stable identity to key a
+wallet off of, not self-custody — and the connector's own access tokens are stateless JWTs with no
+revocation before their 1-hour expiry.
+
 ## Trust model and limits
 
 - **Facilitator verification gap.** On 2026-09-12, Blocky402's hosted testnet `/verify` returned
@@ -268,10 +335,16 @@ published by the agent it names.
   authorizes signing with every wallet in the app, so it is now the single secret worth
   protecting. Privy policies and authorization keys can narrow that (per-wallet owners, quorum
   approval); this project uses app-owned wallets, which is the simplest configuration and the
-  least restrictive.
+  least restrictive. The [Claude connector](#claude-connector) extends this from five fixed roles
+  to an open set of Privy-authenticated users — signing in doesn't make a wallet self-custodial,
+  it just gives an app-owned wallet a stable person to belong to.
 - **Availability depends on Privy.** Payments and HCS messages need a Privy round-trip per
   transaction body, so an outage or rate limit there stops signing, though nothing already
   settled is affected.
+- **Connector access tokens are stateless.** They're self-issued JWTs, verified without a database
+  lookup, which means no revocation before their 1-hour expiry. Refresh tokens are the opposite —
+  opaque, stored only as a hash, and rotated on every use, with reuse of an already-rotated one
+  revoking its whole chain.
 
 ### Differences from the build plan
 
@@ -280,3 +353,6 @@ published by the agent it names.
 - Pricing is per GPU-second for every job type rather than flat per job, which made the registry
   schema move to `@2` in Phase 3.
 - HCS-14 identity fields (optional in the plan) are not implemented.
+- The Claude connector (`apps/connector`) isn't part of the original 6-phase plan; it was added
+  afterward, on the `HederaIdentity`/`WalletResolver` seam the plan's Phase 5 identity work left
+  in place for exactly this.
