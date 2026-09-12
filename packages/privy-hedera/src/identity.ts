@@ -12,6 +12,17 @@ import type { PrivyClient } from "./client";
 import { createPrivyClientHederaSigner, privySdkClient, type PrivyHederaWallet } from "./signer";
 import { privyClientFromEnv, walletFromEnv } from "./wallets";
 
+/** The wiring shared by `privyIdentity` and `identityForUser`, once a wallet is in hand. */
+function buildIdentity(role: string, privy: PrivyClient, wallet: PrivyHederaWallet, network: HederaNetwork, nodeCount?: number): HederaIdentity {
+  return {
+    role,
+    accountId: wallet.accountId,
+    wallet,
+    paymentSigner: createPrivyClientHederaSigner(privy, wallet, { network, ...(nodeCount === undefined ? {} : { nodeCount }) }),
+    createClient: () => privySdkClient(privy, wallet, network),
+  };
+}
+
 export type HederaIdentity = {
   role: string;
   accountId: string;
@@ -35,14 +46,18 @@ export async function privyIdentity(role: string, options: PrivyIdentityOptions 
   const privy = options.privy ?? privyClientFromEnv(env);
   const network = options.network ?? hederaNetwork();
   const wallet = await walletFromEnv(privy, role, env);
-  return {
-    role,
-    accountId: wallet.accountId,
-    wallet,
-    paymentSigner: createPrivyClientHederaSigner(privy, wallet, {
-      network,
-      ...(options.nodeCount === undefined ? {} : { nodeCount: options.nodeCount }),
-    }),
-    createClient: () => privySdkClient(privy, wallet, network),
-  };
+  return buildIdentity(role, privy, wallet, network, options.nodeCount);
+}
+
+/**
+ * Builds the identity for an arbitrary user key (e.g. a Privy DID) from an already-resolved
+ * wallet. A user's wallet can't be looked up from the key alone the way a role's can from env —
+ * there's no bounded env table for an open set of users — so callers resolve and cache it
+ * themselves (see `walletForUser` and `provisionUserIdentity`) and pass it in here. This is the
+ * seam the header comment above describes: everything else about `HederaIdentity` stays the same.
+ */
+export async function identityForUser(userKey: string, wallet: PrivyHederaWallet, options: PrivyIdentityOptions = {}): Promise<HederaIdentity> {
+  const privy = options.privy ?? privyClientFromEnv(options.env ?? process.env);
+  const network = options.network ?? hederaNetwork();
+  return buildIdentity(`USER:${userKey}`, privy, wallet, network, options.nodeCount);
 }

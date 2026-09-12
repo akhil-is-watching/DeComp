@@ -37,6 +37,19 @@ export async function walletFromEnv(
 }
 
 /**
+ * Creates a fresh Privy wallet for an arbitrary user key (e.g. a Privy DID), tagged with a stable
+ * `external_id` for auditability in the Privy dashboard. Unlike `walletFromEnv`, this always
+ * creates — there's no bounded `<ROLE>_WALLET_ID` table to look an existing wallet up in for an
+ * open set of users — so call it exactly once per user, guarded by the caller's own cache (e.g. a
+ * connector's per-DID store keyed on whether it has already provisioned this user).
+ */
+export async function walletForUser(privy: PrivyClient, userKey: string): Promise<Omit<PrivyHederaWallet, "accountId">> {
+  const externalId = `connector-user-${userKey}`;
+  const wallet = await privy.createWallet({ displayName: "DeComp connector user", externalId, idempotencyKey: externalId });
+  return { walletId: wallet.id, publicKey: await hederaPublicKeyFor(privy, wallet) };
+}
+
+/**
  * Config-backed resolver, with each role looked up once per process. A connector that
  * authenticates users over OAuth can swap in its own resolver without touching callers.
  */
