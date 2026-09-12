@@ -26,6 +26,9 @@ const server = Bun.serve({
     "/connector-config": { GET: () => Response.json({ privyAppId: env.privyAppId }) },
     "/mcp": { POST: handleMcpRequest, DELETE: deleteMcpSession },
     "/health": { GET: () => Response.json({ status: "ok" }) },
+    // The bare origin isn't the MCP endpoint — that's /mcp — so say so instead of a bare 404,
+    // since it's an easy thing to paste into Claude's "Add custom connector" URL field by habit.
+    "/": { GET: () => Response.json({ name: "decomp-connector", mcp: `${env.baseUrl}/mcp`, docs: "https://github.com/akhil-is-watching/DeComp" }) },
   },
   fetch: () => Response.json({ error: "not found" }, { status: 404 }),
 });
