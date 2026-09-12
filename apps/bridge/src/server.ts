@@ -10,13 +10,12 @@
  * mirror node reports (packages/bridge-protocol's verifyHello), so "anyone can be a provider"
  * without ever trusting this relay with anything more than plaintext HTTP in transit.
  */
-import { randomNonce, verifyHello, parseClientFrame, type RequestFrame } from "@decomp/bridge-protocol";
+import { forwardableHeaders, randomNonce, verifyHello, parseClientFrame, type RequestFrame } from "@decomp/bridge-protocol";
 import { forwardRequest, getConnection, listConnections, registerConnection, resolvePending, unregisterConnection, type Sender } from "./connections";
 
 type WSData = { nonce: string; authenticated: boolean; accountId?: string; providerId?: string; send: Sender };
 
 const PROXY_PREFIX = "/p/";
-const FORWARDED_REQUEST_HEADERS = ["content-type"];
 
 async function handleProxy(req: Request, url: URL): Promise<Response> {
   const rest = url.pathname.slice(PROXY_PREFIX.length);
@@ -29,11 +28,7 @@ async function handleProxy(req: Request, url: URL): Promise<Response> {
     return Response.json({ error: `${accountId} is not connected to the bridge` }, { status: 503 });
   }
 
-  const headers: Record<string, string> = {};
-  for (const name of FORWARDED_REQUEST_HEADERS) {
-    const value = req.headers.get(name);
-    if (value) headers[name] = value;
-  }
+  const headers = forwardableHeaders(req.headers);
   const bodyBytes = req.body ? new Uint8Array(await req.arrayBuffer()) : undefined;
   const frame: RequestFrame = {
     type: "request",

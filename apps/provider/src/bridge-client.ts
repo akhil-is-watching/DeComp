@@ -4,7 +4,7 @@
  * identity (see packages/bridge-protocol); answers relayed HTTP requests against this provider's
  * own already-running local server. Reconnects with backoff if the connection drops.
  */
-import type { ClientFrame, RequestFrame, ServerFrame } from "@decomp/bridge-protocol";
+import { forwardableHeaders, type ClientFrame, type RequestFrame, type ServerFrame } from "@decomp/bridge-protocol";
 import type { HederaIdentity } from "@decomp/privy-hedera";
 
 const RECONNECT_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 30_000];
@@ -17,9 +17,7 @@ async function handleRequest(ws: WebSocket, frame: RequestFrame, localPort: numb
       body: frame.body ? Buffer.from(frame.body, "base64") : undefined,
     });
     const bodyBytes = new Uint8Array(await res.arrayBuffer());
-    const headers: Record<string, string> = {};
-    const contentType = res.headers.get("content-type");
-    if (contentType) headers["content-type"] = contentType;
+    const headers = forwardableHeaders(res.headers);
     const response: ClientFrame = { type: "response", id: frame.id, status: res.status, headers, ...(bodyBytes.length ? { body: Buffer.from(bodyBytes).toString("base64") } : {}) };
     ws.send(JSON.stringify(response));
   } catch (error) {

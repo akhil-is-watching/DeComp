@@ -27,7 +27,10 @@ afterAll(async () => {
 });
 
 /** Connects, authenticates as `identity`, and answers relayed requests with `handle`. Resolves once authenticated. */
-async function connectFakeProvider(identity: HederaIdentity, handle: (req: RequestFrame) => { status: number; body?: string }): Promise<WebSocket> {
+async function connectFakeProvider(
+  identity: HederaIdentity,
+  handle: (req: RequestFrame) => { status: number; body?: string; headers?: Record<string, string> },
+): Promise<WebSocket> {
   const ws = new WebSocket(`ws://127.0.0.1:${server.port}/connect`);
   await new Promise<void>((resolve, reject) => {
     ws.addEventListener("message", async event => {
@@ -41,8 +44,14 @@ async function connectFakeProvider(identity: HederaIdentity, handle: (req: Reque
       } else if (frame.type === "error") {
         reject(new Error(frame.message));
       } else if (frame.type === "request") {
-        const { status, body } = handle(frame);
-        const response: ClientFrame = { type: "response", id: frame.id, status, headers: { "content-type": "application/json" }, ...(body ? { body: Buffer.from(body).toString("base64") } : {}) };
+        const { status, body, headers } = handle(frame);
+        const response: ClientFrame = {
+          type: "response",
+          id: frame.id,
+          status,
+          headers: { "content-type": "application/json", ...headers },
+          ...(body ? { body: Buffer.from(body).toString("base64") } : {}),
+        };
         ws.send(JSON.stringify(response));
       }
     });
@@ -58,6 +67,29 @@ describe("provider bridge", () => {
       const res = await fetch(`${baseUrl}/p/${agent.accountId}/info?x=1`);
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ echoedPath: "/info?x=1", echoedMethod: "GET" });
+    } finally {
+      ws.close();
+    }
+  });
+
+  test("forwards custom response headers through, not just content-type", async () => {
+    // Regression: an earlier version only forwarded content-type, silently dropping x402's
+    // PAYMENT-REQUIRED/PAYMENT-RESPONSE headers — real 402 challenges through the bridge broke.
+    const ws = await connectFakeProvider(agent, () => ({ status: 402, headers: { "payment-required": "eyJhbW91bnQiOiIxMDAifQ==" } }));
+    try {
+      const res = await fetch(`${baseUrl}/p/${agent.accountId}/jobs`, { method: "POST" });
+      expect(res.status).toBe(402);
+      expect(res.headers.get("payment-required")).toBe("eyJhbW91bnQiOiIxMDAifQ==");
+    } finally {
+      ws.close();
+    }
+  });
+
+  test("forwards custom request headers through, e.g. x402's PAYMENT-SIGNATURE", async () => {
+    const ws = await connectFakeProvider(agent, req => ({ status: 200, body: JSON.stringify({ receivedSignature: req.headers["payment-signature"] ?? null }) }));
+    try {
+      const res = await fetch(`${baseUrl}/p/${agent.accountId}/jobs`, { method: "POST", headers: { "payment-signature": "sig-abc" } });
+      expect(await res.json()).toEqual({ receivedSignature: "sig-abc" });
     } finally {
       ws.close();
     }
