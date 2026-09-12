@@ -1,25 +1,37 @@
-# Railway deploy config for the DeComp Claude connector (apps/connector).
+# Railway deploy config, shared by every Bun service in this repo (currently apps/connector and
+# apps/bridge — see Dockerfile). Both deploy from ONE image; which app actually starts is chosen
+# per-service by the START_APP variable ("connector" or "bridge"), since Railway doesn't reliably
+# let a second service in the same repo opt into a different config-as-code file without dashboard
+# access, and this sidesteps that entirely.
 #
-# Deploy this repo as a Railway service with its Root Directory left at the repo root (not
-# apps/connector) — apps/connector depends on the @decomp/* workspace packages via `workspace:*`,
-# which only resolve correctly when `bun install` runs against the whole monorepo.
+# Deploy with Root Directory left at the repo root (not a subdirectory) for every such service —
+# apps/connector and apps/bridge both depend on the @decomp/* workspace packages via
+# `workspace:*`, which only resolve correctly when `bun install` runs against the whole monorepo.
 #
-# Environment variables to set in Railway's dashboard (never committed here — see .env.example
-# for what each one means):
-#   PRIVY_APP_ID, PRIVY_APP_SECRET              same Privy app the rest of DeComp uses
-#   CONNECTOR_TOKEN_SECRET                      `openssl rand -hex 32`
-#   CONNECTOR_BASE_URL                          https://${{RAILWAY_PUBLIC_DOMAIN}}
-#   HEDERA_NETWORK, FACILITATOR_URL             usually the defaults in .env.example
-#   OPERATOR_WALLET_ID, OPERATOR_ACCOUNT_ID     the operator identity that funds new users
-#   AGENT_WALLET_ID, AGENT_ACCOUNT_ID           only if this service also runs agent-side scripts
-#   REGISTRY_TOPIC_ID, AUDIT_TOPIC_ID, COMPUTE_TOKEN_ID, ASSOCIATE_TOKEN_IDS
-#   CONNECTOR_DB_PATH=/data/connector.sqlite    once a volume is attached at /data — the connector's
-#                                                per-user wallet cache and OAuth state need a
-#                                                persistent disk; Railway's own filesystem is
-#                                                otherwise wiped on every deploy
+# Environment variables to set per service in Railway's dashboard (never committed here — see
+# .env.example for what each one means):
 #
-# PORT is set by Railway automatically; the connector binds to it (see apps/connector/src/env.ts).
-# PRIVY_JWKS_URL needs no override — it's derived from PRIVY_APP_ID.
+#   Every service:
+#     START_APP                                   "connector" (default, can be omitted) or "bridge"
+#     HEDERA_NETWORK, FACILITATOR_URL             usually the defaults in .env.example
+#
+#   START_APP=connector:
+#     PRIVY_APP_ID, PRIVY_APP_SECRET              same Privy app the rest of DeComp uses
+#     CONNECTOR_TOKEN_SECRET                      `openssl rand -hex 32`
+#     CONNECTOR_BASE_URL                          https://${{RAILWAY_PUBLIC_DOMAIN}}
+#     OPERATOR_WALLET_ID, OPERATOR_ACCOUNT_ID     the operator identity that funds new users
+#     REGISTRY_TOPIC_ID, AUDIT_TOPIC_ID, COMPUTE_TOKEN_ID, ASSOCIATE_TOKEN_IDS
+#     CONNECTOR_DB_PATH=/data/connector.sqlite    once a volume is attached at /data — the connector's
+#                                                  per-user wallet cache and OAuth state need a
+#                                                  persistent disk; Railway's own filesystem is
+#                                                  otherwise wiped on every deploy
+#     PRIVY_JWKS_URL needs no override — it's derived from PRIVY_APP_ID.
+#
+#   START_APP=bridge: nothing else required. It holds no keys and signs nothing — it only
+#     verifies a connecting provider's signature against the mirror node — so it needs no Privy
+#     credential and no persistent disk.
+#
+# PORT is set by Railway automatically; both apps bind to it.
 
 [build]
 # Nixpacks' pinned nixpkgs snapshot tried to install Node.js 18 (now removed from nixpkgs as
@@ -27,7 +39,7 @@
 # official oven/bun image sidesteps Railway's nix pinning entirely and is easier to reason about.
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
-watchPatterns = ["apps/connector/**", "packages/**", "package.json", "bun.lock", "tsconfig.json", "Dockerfile", "railway.toml"]
+watchPatterns = ["apps/connector/**", "apps/bridge/**", "packages/**", "package.json", "bun.lock", "tsconfig.json", "Dockerfile", "railway.toml"]
 
 [deploy]
 healthcheckPath = "/health"
