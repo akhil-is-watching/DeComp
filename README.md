@@ -230,9 +230,9 @@ Setup, beyond the base `.env` above:
 # Generate a secret for the connector's own OAuth tokens
 echo "CONNECTOR_TOKEN_SECRET=$(openssl rand -hex 32)" >> .env
 
-# From dashboard.privy.io → your app → App settings, copy the verification key into .env as
-# PRIVY_VERIFICATION_KEY (an SPKI PEM; escape its newlines as \n since .env can't hold real ones).
-# Also turn on at least one login method (email is enough) for the app there.
+# At dashboard.privy.io → your app → App settings, turn on at least one login method (email is
+# enough). Privy access tokens are verified against the app's JWKS endpoint automatically, from
+# PRIVY_APP_ID alone — nothing else to copy in.
 
 bun run connector          # http://127.0.0.1:4030
 ```
@@ -314,5 +314,5 @@ Stop `bun run dev` before running a gate; the gates start their own services.
 | `stop running providers first` | Stop `bun run dev` before running a validation gate. |
 | HTTP 429 from the facilitator | Blocky402 testnet allows 100 requests a minute per IP; wait a minute. |
 | A new transaction isn't on HashScan yet | The mirror node trails consensus by a few seconds. |
-| `Missing required env var PRIVY_VERIFICATION_KEY` (connector) | Copy the verification key from dashboard.privy.io → your app → App settings into `.env`. |
+| `Missing required env var CONNECTOR_TOKEN_SECRET` | Generate one: `openssl rand -hex 32`, appended to `.env`. |
 | Claude connector login page shows an error | The Privy app has no login method enabled; turn one on (email is enough) in the Privy dashboard. |
