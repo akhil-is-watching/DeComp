@@ -2,14 +2,41 @@
   "name": "@decomp/provider-node",
   "version": "0.1.0",
   "private": true,
+  "description": "Sell time on your Mac's GPU to AI agents, metered and settled on Hedera.",
+  "author": "DeComp",
   "main": "./out/main/index.js",
   "build": {
     "appId": "cloud.decomp.provider-node",
     "productName": "Decomp Node",
     "mac": {
       "icon": "build/icon.icns",
-      "category": "public.app-category.developer-tools"
-    }
+      "category": "public.app-category.developer-tools",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "identity": null
+    },
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "out/**/*",
+      "package.json",
+      "!**/*.map"
+    ],
+    "electronVersion": "33.4.11",
+    "extraResources": [
+      {
+        "from": "../../.env",
+        "to": ".env"
+      }
+    ]
   },
   "scripts": {
     "dev": "electron-vite dev",

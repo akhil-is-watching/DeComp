@@ -2,9 +2,10 @@
  * Provider Node's main process. Electron's main process is Node.js, not Bun — no Bun.serve,
  * bun:sqlite, etc. here, even though the rest of this monorepo prefers Bun; see the plan doc.
  */
-import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { app, BrowserWindow, ipcMain, net, protocol, shell } from "electron";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { getRootEnvValue, loadRootEnvIntoProcess } from "./env-config";
 import { registerAccountProvisioningIpc } from "./ipc/account-provisioning-ipc";
 import { registerEnvConfigIpc } from "./ipc/env-config-ipc";
@@ -25,6 +26,48 @@ function setDevDockIcon(): void {
   if (process.platform !== "darwin" || app.isPackaged) return;
   const icon = join(__dirname, "../../build/icon.png");
   if (existsSync(icon)) app.dock?.setIcon(icon);
+}
+
+/**
+ * A packaged build serves the renderer over app:// rather than file://.
+ *
+ * Privy's embedded wallet refuses to initialise outside a secure context, and file:// is not one —
+ * loading the bundle directly threw "Embedded wallet is only available over HTTPS" during
+ * PrivyProvider init, which took the whole React tree down and left a black window. Dev never hit
+ * it because http://localhost is a secure context by definition. Registering our own scheme as
+ * `secure` restores that, and with it crypto.subtle and navigator.clipboard, which have the same
+ * requirement.
+ */
+const RENDERER_SCHEME = "app";
+/**
+ * The host matters as much as the scheme. Privy's guard is:
+ *
+ *   hostname is not localhost/127.0.0.1 AND protocol is not https:/chrome-extension:  ->  throw
+ *
+ * so serving from app://localhost satisfies it without an HTTP server, while `secure: true` above
+ * keeps isSecureContext true for crypto.subtle and navigator.clipboard.
+ */
+const RENDERER_HOST = "localhost";
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: RENDERER_SCHEME,
+    privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
+  },
+]);
+
+function serveRenderer(): void {
+  const root = join(__dirname, "../renderer");
+  protocol.handle(RENDERER_SCHEME, request => {
+    const { pathname } = new URL(request.url);
+    const relative = pathname === "/" ? "index.html" : decodeURIComponent(pathname).replace(/^\/+/, "");
+    const resolved = join(root, relative);
+    // Never serve outside the bundled renderer, whatever the URL claims.
+    if (resolved !== root && !resolved.startsWith(root + "/")) {
+      return new Response("Not found", { status: 404 });
+    }
+    return net.fetch(pathToFileURL(resolved).toString());
+  });
 }
 
 function createWindow(): void {
@@ -60,7 +103,7 @@ function createWindow(): void {
   if (process.env.ELECTRON_RENDERER_URL) {
     win.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
-    win.loadFile(join(__dirname, "../renderer/index.html"));
+    win.loadURL(`${RENDERER_SCHEME}://${RENDERER_HOST}/index.html`);
   }
 }
 
@@ -74,6 +117,7 @@ registerEnvConfigIpc();
 registerAccountProvisioningIpc();
 
 app.whenReady().then(() => {
+  serveRenderer();
   setDevDockIcon();
   createWindow();
   app.on("activate", () => {
