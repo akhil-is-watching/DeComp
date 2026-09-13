@@ -7,8 +7,9 @@
  * is fine trains people to ignore it.
  */
 import type { RegistryEntry } from "@decomp/hcs-registry";
+import type { NodeRunState } from "../../main/node-supervisor";
 import { Button } from "./Button";
-import { IconBolt, IconBroadcast } from "./icons";
+import { IconBolt, IconBroadcast, IconCpu } from "./icons";
 import { hbar } from "../lib/format";
 
 export function NodeStatus({
@@ -63,6 +64,51 @@ export function NodeStatus({
       </div>
       <button className="chip" onClick={onGoLive} style={{ flexShrink: 0 }}>
         Update listing
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Being listed and being able to serve are different things — this is the second one. A listing
+ * with nothing answering behind it just makes agents fail a health check and route elsewhere.
+ */
+export function ServingStatus({ run, busy, onStart, onStop }: { run: NodeRunState; busy: boolean; onStart: () => void; onStop: () => void }) {
+  const serving = run.provider === "ready";
+  const tone = serving ? "var(--viz-good)" : run.running ? "var(--viz-warn)" : "var(--muted)";
+  const headline = serving ? "Answering jobs" : run.running ? "Starting up…" : "Not answering jobs";
+  const detail = serving
+    ? run.reachableAt ?? "connected to the bridge"
+    : run.running
+      ? `runner ${run.runner} · provider ${run.provider}`
+      : run.error ?? "The GPU runner and provider aren't running, so agents that find you will get nothing.";
+
+  return (
+    <div
+      className="card"
+      style={{
+        padding: "16px 20px",
+        display: "flex",
+        alignItems: "center",
+        gap: 16,
+        flexWrap: "wrap",
+        borderColor: serving ? "color-mix(in srgb, var(--viz-good) 26%, transparent)" : "var(--line)",
+      }}
+    >
+      <span aria-hidden style={{ color: tone, display: "flex", flexShrink: 0 }}>
+        <IconCpu size={16} />
+      </span>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ fontSize: 15, color: "var(--text)" }}>{headline}</div>
+        <div
+          className={run.reachableAt && serving ? "mono" : undefined}
+          style={{ fontSize: 12.5, color: run.error && !run.running ? "var(--viz-crit)" : "var(--muted)", marginTop: 3, wordBreak: "break-all" }}
+        >
+          {detail}
+        </div>
+      </div>
+      <button className="chip" onClick={run.running ? onStop : onStart} disabled={busy} style={{ flexShrink: 0 }}>
+        {busy ? "…" : run.running ? "Stop node" : "Start node"}
       </button>
     </div>
   );

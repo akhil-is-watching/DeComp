@@ -10,9 +10,11 @@ import { getRootEnvValue, loadRootEnvIntoProcess } from "./env-config";
 import { registerAccountProvisioningIpc } from "./ipc/account-provisioning-ipc";
 import { registerEnvConfigIpc } from "./ipc/env-config-ipc";
 import { registerMirrorIpc } from "./ipc/mirror-ipc";
+import { registerNodeIpc } from "./ipc/node-ipc";
 import { registerProviderRegistrationIpc } from "./ipc/provider-registration-ipc";
 import { registerSettingsIpc } from "./ipc/settings-ipc";
 import { restoredBounds, trackBounds } from "./window-state";
+import { stopNode } from "./node-supervisor";
 
 // Needed before anything below touches @decomp/privy-hedera (account-provisioning.ts's OPERATOR
 // payer) — Electron's main process gets none of Bun's automatic .env loading.
@@ -117,6 +119,7 @@ registerMirrorIpc();
 registerEnvConfigIpc();
 registerAccountProvisioningIpc();
 registerProviderRegistrationIpc();
+registerNodeIpc();
 
 app.whenReady().then(() => {
   serveRenderer();
@@ -125,6 +128,12 @@ app.whenReady().then(() => {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+});
+
+// Children outlive the window otherwise, leaving a provider answering jobs it can no longer get
+// signatures for — the renderer that signs is gone.
+app.on("before-quit", () => {
+  void stopNode();
 });
 
 app.on("window-all-closed", () => {

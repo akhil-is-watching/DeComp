@@ -7,6 +7,9 @@
 import { forwardableHeaders, type ClientFrame, type RequestFrame, type ServerFrame } from "@decomp/bridge-protocol";
 import type { HederaIdentity } from "@decomp/privy-hedera";
 
+/** All the handshake needs: who you claim to be, and the ability to sign a nonce as them. */
+export type BridgeIdentity = Pick<HederaIdentity, "accountId" | "signMessage">;
+
 const RECONNECT_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 30_000];
 
 async function handleRequest(ws: WebSocket, frame: RequestFrame, localPort: number, log: (line: string) => void): Promise<void> {
@@ -28,7 +31,7 @@ async function handleRequest(ws: WebSocket, frame: RequestFrame, localPort: numb
 }
 
 /** Starts (and keeps alive) an outbound connection to the bridge. Fire-and-forget; logs its own status. */
-export function connectBridge(bridgeUrl: string, identity: HederaIdentity, providerId: string, localPort: number, log: (line: string) => void): void {
+export function connectBridge(bridgeUrl: string, identity: BridgeIdentity, providerId: string, localPort: number, log: (line: string) => void): void {
   let attempt = 0;
 
   function connect() {

@@ -13,6 +13,7 @@ import { connectBridge } from "./bridge-client";
 import { JobQueue, paidSeconds, type MeteredJob } from "./job-queue";
 import { describePrice, hbarPrice, parseJobRequest, parseOffers, priceIn, tickAmount } from "./pricing";
 import { RunnerClient, RunnerError, type RunnerJob } from "./runner-client";
+import { remoteSignerIdentity } from "./remote-signer";
 import { createJobGate } from "./x402-gate";
 
 const { network, facilitatorUrl } = networkConfig();
@@ -34,6 +35,10 @@ const registryTopicId = process.env.REGISTRY_TOPIC_ID || undefined;
 // Behind NAT with no domain of your own, connect out to a bridge (apps/bridge) instead of
 // advertising an address nobody outside this machine can reach.
 const bridgeUrl = process.env.BRIDGE_URL || undefined;
+// Set by the desktop node, whose account is keyed by an embedded wallet this process can never
+// hold: signing is delegated back to the app over loopback (see remote-signer.ts).
+const signerUrl = process.env.PROVIDER_SIGNER_URL || undefined;
+const signerToken = process.env.PROVIDER_SIGNER_TOKEN || "";
 const publicUrl = bridgeUrl ? `${bridgeUrl}/p/${payTo}` : (process.env.PUBLIC_URL ?? `http://127.0.0.1:${port}`);
 
 type RegistrationState = {
@@ -253,17 +258,21 @@ if (registryTopicId || bridgeUrl) {
   void (async () => {
     let client;
     try {
-      const identity = await privyIdentity(providerName);
-      if (identity.accountId !== payTo) {
-        throw new Error(`${providerName}_WALLET_ID signs for ${identity.accountId}, not ${payTo}`);
+      // A remote signer covers the bridge handshake but holds no Hedera Client, so the desktop
+      // node publishes its own registration from the app instead of here. Keeping the Privy
+      // identity in its own binding is what lets the registration branch below stay type-safe.
+      const privy = signerUrl ? null : await privyIdentity(providerName);
+      if (privy && privy.accountId !== payTo) {
+        throw new Error(`${providerName}_WALLET_ID signs for ${privy.accountId}, not ${payTo}`);
       }
+      const identity = privy ?? remoteSignerIdentity(payTo, signerUrl!, signerToken);
 
       if (bridgeUrl) {
         connectBridge(bridgeUrl, identity, providerName, port, line => console.log(`[provider] ${line}`));
       }
 
-      if (registryTopicId) {
-        client = identity.createClient();
+      if (registryTopicId && privy) {
+        client = privy.createClient();
         const { sequenceNumber, transactionId } = await publishRegistration(client, registryTopicId, {
           schema: REGISTRATION_SCHEMA,
           providerId: providerName,

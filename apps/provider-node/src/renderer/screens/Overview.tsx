@@ -13,11 +13,12 @@ import { EmptyState } from "../components/EmptyState";
 import { ExternalLink } from "../components/ExternalLink";
 import { Stat } from "../components/Stat";
 import { JobRow } from "../components/JobRow";
-import { NodeStatus } from "../components/NodeStatus";
+import { NodeStatus, ServingStatus } from "../components/NodeStatus";
 import { Skeleton } from "../components/Skeleton";
 import { IconBolt, IconCpu, IconLayers, IconWallet } from "../components/icons";
 import { useAppData } from "../state/AppData";
 import { useNow } from "../hooks/useNow";
+import { useNodeRun } from "../hooks/useNodeRun";
 import { assetUnit, compact, dayLabel, duration, greeting, hbar, hbarFloat, percentChange, relativeTime, shortAddress } from "../lib/format";
 import { byJobType, countInWindow, dailyTotals, marketPosition, summarize, windowTotals } from "../lib/metrics";
 
@@ -26,6 +27,7 @@ const TREND_DAYS = 14;
 export function Overview({ onOpenTab, onGoLive }: { onOpenTab: (tab: "jobs" | "earnings" | "settings") => void; onGoLive: () => void }) {
   const { settings, balance, audits, registry, initialLoading } = useAppData();
   const now = useNow(30_000);
+  const node = useNodeRun();
 
   const summary = useMemo(() => summarize(audits), [audits]);
   const market = useMemo(() => marketPosition(registry, settings?.accountId ?? null), [registry, settings?.accountId]);
@@ -49,6 +51,9 @@ export function Overview({ onOpenTab, onGoLive }: { onOpenTab: (tab: "jobs" | "e
       <PageHeader providerName={settings.providerName} lastJobAt={summary.lastJobAt} now={now} />
 
       <NodeStatus listing={market.listing} competitors={market.competitors} onGoLive={onGoLive} />
+
+      {/* Listed is not the same as serving; both have to be true before a job can land. */}
+      {market.listing && <ServingStatus run={node.state} busy={node.busy} onStart={() => void node.start()} onStop={() => void node.stop()} />}
 
       {/* --- hero: the one number this app exists to report, and its shape over time --- */}
       <Card padding={0} style={{ overflow: "hidden" }}>

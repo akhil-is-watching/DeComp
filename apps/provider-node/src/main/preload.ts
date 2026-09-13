@@ -4,6 +4,7 @@ import type { AuditEntry, RegistryEntry } from "@decomp/hcs-registry";
 import type { HederaNetwork } from "@decomp/hedera-x402";
 import type { ProvisionResult } from "./account-provisioning";
 import type { RegistrationRequest, RegistrationResult } from "./provider-registration";
+import type { NodeRunState, ProcessName } from "./node-supervisor";
 import type { EnvConfig } from "./env-config";
 import type { BalanceSnapshot } from "./mirror-reads";
 import type { Settings } from "./settings-store";
@@ -53,6 +54,16 @@ const api = {
   getRegistry: (registryTopicId: string, network: HederaNetwork): Promise<RegistryEntry[]> =>
     ipcRenderer.invoke("decomp:get-registry", registryTopicId, network),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke("decomp:open-external", url),
+  /** Starts/stops the GPU runner and provider that make a listed node actually answer jobs. */
+  startNode: (): Promise<NodeRunState> => ipcRenderer.invoke("decomp:start-node"),
+  stopNode: (): Promise<void> => ipcRenderer.invoke("decomp:stop-node"),
+  getNodeState: (): Promise<NodeRunState> => ipcRenderer.invoke("decomp:node-state"),
+  getNodeLog: (): Promise<{ name: ProcessName; line: string; at: number }[]> => ipcRenderer.invoke("decomp:node-log"),
+  onNodeChanged: (listener: (state: NodeRunState) => void): (() => void) => {
+    const handler = (_event: unknown, state: NodeRunState) => listener(state);
+    ipcRenderer.on("decomp:node-changed", handler);
+    return () => ipcRenderer.removeListener("decomp:node-changed", handler);
+  },
   getEnvConfig: (): Promise<EnvConfig> => ipcRenderer.invoke("decomp:get-env-config"),
   provisionAccount: (address: string, associateTokenIds: string[]): Promise<ProvisionResult> =>
     ipcRenderer.invoke("decomp:provision-account", address, associateTokenIds),
