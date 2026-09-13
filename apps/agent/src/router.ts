@@ -18,10 +18,12 @@ export class ProviderUnavailableError extends Error {
     readonly endpoint: string,
     readonly reason: unknown,
   ) {
-    super(`provider ${endpoint} unavailable: ${reason instanceof Error ? reason.message : String(reason)}`);
+    super(`provider ${endpoint} unavailable: ${reasonText(reason)}`);
     this.name = "ProviderUnavailableError";
   }
 }
+
+export const reasonText = (reason: unknown) => (reason instanceof Error ? reason.message : String(reason));
 
 const compareBigints = (a: bigint, b: bigint) => (a < b ? -1 : a > b ? 1 : 0);
 
@@ -63,6 +65,9 @@ export async function routeWithFallback<T>(
       onFallback(failed);
     }
   }
-  const tried = skipped.map(s => s.candidate.providerId).join(", ") || "none";
-  throw new Error(`no eligible provider could take the job (tried: ${tried})`);
+  if (skipped.length === 0) throw new Error("no eligible provider is online to take the job");
+  // Each reason matters more than the names: "one tick costs more than the listed price" and
+  // "not connected to the bridge" call for very different responses from whoever reads this.
+  const tried = skipped.map(s => `${s.candidate.providerId} (${reasonText(s.error.reason)})`).join("; ");
+  throw new Error(`no eligible provider could take the job — tried: ${tried}`);
 }

@@ -140,6 +140,17 @@ export async function runJob(options: RunJobOptions): Promise<JobSummary> {
       new Error(`one tick costs ${describeAmount(asset, tickAmount)}, above the ${describeAmount(asset, budget)} budget`),
     );
   }
+  // The spend controls would refuse this anyway, but with an error that doesn't say why. When
+  // routing, the cap is the registered price, so this is a provider charging more than it listed.
+  if (tickAmount > options.maxAmountPerPayment) {
+    throw new ProviderUnavailableError(
+      base,
+      new Error(
+        `one tick costs ${describeAmount(asset, tickAmount)}, above the ${describeAmount(asset, options.maxAmountPerPayment)} ` +
+          (options.expectedAccount ? "its registry listing advertises" : "per-payment cap"),
+      ),
+    );
+  }
   log(`quote   ${info.name} ${info.account} charges ${price.label}/s, billed in ${offer.tickSeconds}s ticks of ${describeAmount(asset, tickAmount)}`);
 
   let signed = false;

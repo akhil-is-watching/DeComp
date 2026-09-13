@@ -83,6 +83,19 @@ describe("routeWithFallback", () => {
     const attempt = async (c: Candidate): Promise<string> => {
       throw new ProviderUnavailableError(c.endpoint, new Error("timeout"));
     };
-    await expect(routeWithFallback(ranked, attempt)).rejects.toThrow("tried: P1, P2, P3");
+    await expect(routeWithFallback(ranked, attempt)).rejects.toThrow("tried: P1 (timeout); P2 (timeout); P3 (timeout)");
+  });
+
+  test("says why each provider was skipped, not just which", async () => {
+    const attempt = async (c: Candidate): Promise<string> => {
+      throw new ProviderUnavailableError(c.endpoint, new Error(c.providerId === "P1" ? "not connected to the bridge" : "one tick costs too much"));
+    };
+    const routed = routeWithFallback(ranked.slice(0, 2), attempt);
+    await expect(routed).rejects.toThrow("P1 (not connected to the bridge)");
+    await expect(routed).rejects.toThrow("P2 (one tick costs too much)");
+  });
+
+  test("says no provider is online when there was nobody to try", async () => {
+    await expect(routeWithFallback([], async () => "never")).rejects.toThrow("no eligible provider is online");
   });
 });

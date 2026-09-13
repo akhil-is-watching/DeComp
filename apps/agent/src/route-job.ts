@@ -1,7 +1,7 @@
 /** Registry-driven jobs: discover providers on HCS, pick the cheapest, fall back if it's down. */
 import { formatTinybars } from "@decomp/hedera-x402";
 import { discoverProviders } from "./discovery";
-import { rankCandidates, routeWithFallback } from "./router";
+import { rankCandidates, reasonText, routeWithFallback } from "./router";
 import { runJob, type RunJobOptions } from "./run-job";
 
 /** The registry lists HBAR prices, so routed jobs always pay in HBAR. */
@@ -30,7 +30,7 @@ export async function discoverAndRunJob({ topicId, maxPricePerSecTinybars, ...op
         maxAmountPerPayment: c.pricePerSecTinybars * BigInt(c.tickSeconds),
       }),
     ({ candidate: failed, error }) =>
-      log(`fallback ${failed.providerId} unavailable (${error.reason instanceof Error ? error.reason.message : error.reason}); trying next`),
+      log(`fallback ${failed.providerId} unavailable (${reasonText(error.reason)}); trying next`),
   );
   return { summary: value, chosen: candidate, ranked, skipped };
 }
