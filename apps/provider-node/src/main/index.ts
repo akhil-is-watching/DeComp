@@ -8,6 +8,7 @@ import { getRootEnvValue, loadRootEnvIntoProcess } from "./env-config";
 import { registerAccountProvisioningIpc } from "./ipc/account-provisioning-ipc";
 import { registerEnvConfigIpc } from "./ipc/env-config-ipc";
 import { registerMirrorIpc } from "./ipc/mirror-ipc";
+import { registerProviderControlIpc } from "./ipc/provider-control-ipc";
 import { registerSettingsIpc } from "./ipc/settings-ipc";
 
 // Needed before anything below touches @decomp/privy-hedera (account-provisioning.ts's OPERATOR
@@ -41,6 +42,7 @@ registerSettingsIpc();
 registerMirrorIpc();
 registerEnvConfigIpc();
 registerAccountProvisioningIpc();
+registerProviderControlIpc();
 
 app.whenReady().then(() => {
   createWindow();

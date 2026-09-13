@@ -9,10 +9,12 @@ import { Login } from "./screens/Login";
 import { Balance } from "./screens/Balance";
 import { JobHistory } from "./screens/JobHistory";
 import { RewardHistory } from "./screens/RewardHistory";
+import { ProviderControl } from "./screens/ProviderControl";
 import { SettingsScreen } from "./screens/Settings";
 
 const TABS = [
   { id: "balance", label: "balance", Component: Balance },
+  { id: "provider", label: "provider control", Component: ProviderControl },
   { id: "jobs", label: "job history", Component: JobHistory },
   { id: "rewards", label: "reward history", Component: RewardHistory },
   { id: "settings", label: "settings", Component: SettingsScreen },

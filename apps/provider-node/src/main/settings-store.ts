@@ -15,6 +15,12 @@ export type Settings = {
   bridgeUrl: string | null;
   providerName: string;
   runnerPath: string | null;
+  port: number;
+  offersSpec: string;
+  tickSeconds: number;
+  tickGraceSeconds: number;
+  maxRuntimeS: number;
+  jobRunnerUrl: string;
 };
 
 const DEFAULTS: Settings = {
@@ -28,6 +34,12 @@ const DEFAULTS: Settings = {
   bridgeUrl: "https://bridge.decomp.cloud",
   providerName: "PROVIDER_1",
   runnerPath: null,
+  port: 4021,
+  offersSpec: "benchmark:2000000",
+  tickSeconds: 5,
+  tickGraceSeconds: 5,
+  maxRuntimeS: 600,
+  jobRunnerUrl: "http://127.0.0.1:8100",
 };
 
 function settingsPath(): string {
