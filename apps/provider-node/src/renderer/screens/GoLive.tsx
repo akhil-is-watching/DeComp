@@ -18,6 +18,7 @@ import { useAppData } from "../state/AppData";
 const JOB_TYPES = [
   { name: "benchmark", blurb: "dense matmul on MLX or PyTorch MPS" },
   { name: "mandelbrot", blurb: "renders a PNG at up to 4096²" },
+  { name: "imagegen", blurb: "seeded plasma-art PNG render on MLX" },
 ] as const;
 
 const TICK_SECONDS = 5;
@@ -26,7 +27,7 @@ const DEFAULT_HBAR_PER_SECOND = 0.0125;
 export function GoLive({ onDone }: { onDone: () => void }) {
   const { settings, refresh } = useAppData();
   const { wallets } = useWallets();
-  const [selected, setSelected] = useState<string[]>(["benchmark", "mandelbrot"]);
+  const [selected, setSelected] = useState<string[]>(["benchmark", "mandelbrot", "imagegen"]);
   const [rate, setRate] = useState(String(DEFAULT_HBAR_PER_SECOND));
   const [state, setState] = useState<{ status: "idle" | "publishing" | "error"; error?: string }>({ status: "idle" });
 
