@@ -13,6 +13,7 @@ import { EmptyState } from "../components/EmptyState";
 import { ExternalLink } from "../components/ExternalLink";
 import { Stat } from "../components/Stat";
 import { JobRow } from "../components/JobRow";
+import { NodeStatus } from "../components/NodeStatus";
 import { Skeleton } from "../components/Skeleton";
 import { IconBolt, IconCpu, IconLayers, IconWallet } from "../components/icons";
 import { useAppData } from "../state/AppData";
@@ -22,7 +23,7 @@ import { byJobType, countInWindow, dailyTotals, marketPosition, summarize, windo
 
 const TREND_DAYS = 14;
 
-export function Overview({ onOpenTab }: { onOpenTab: (tab: "jobs" | "earnings" | "settings") => void }) {
+export function Overview({ onOpenTab, onGoLive }: { onOpenTab: (tab: "jobs" | "earnings" | "settings") => void; onGoLive: () => void }) {
   const { settings, balance, audits, registry, initialLoading } = useAppData();
   const now = useNow(30_000);
 
@@ -45,7 +46,9 @@ export function Overview({ onOpenTab }: { onOpenTab: (tab: "jobs" | "earnings" |
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
-      <PageHeader providerName={settings.providerName} listed={market.listing !== null} lastJobAt={summary.lastJobAt} now={now} />
+      <PageHeader providerName={settings.providerName} lastJobAt={summary.lastJobAt} now={now} />
+
+      <NodeStatus listing={market.listing} competitors={market.competitors} onGoLive={onGoLive} />
 
       {/* --- hero: the one number this app exists to report, and its shape over time --- */}
       <Card padding={0} style={{ overflow: "hidden" }}>
@@ -175,7 +178,7 @@ export function Overview({ onOpenTab }: { onOpenTab: (tab: "jobs" | "earnings" |
         {/* --- who this node is on the market, and where its money lives --- */}
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <SectionTitle>This node</SectionTitle>
-          <ListingCard market={market} network={settings.network} registryTopicId={settings.registryTopicId} onOpenTab={onOpenTab} />
+          <ListingCard market={market} network={settings.network} registryTopicId={settings.registryTopicId} />
           <Card
             title="Identity"
             padding={18}
@@ -219,7 +222,7 @@ export function Overview({ onOpenTab }: { onOpenTab: (tab: "jobs" | "earnings" |
   );
 }
 
-function PageHeader({ providerName, listed, lastJobAt, now }: { providerName: string; listed: boolean; lastJobAt: Date | null; now: number }) {
+function PageHeader({ providerName, lastJobAt, now }: { providerName: string; lastJobAt: Date | null; now: number }) {
   return (
     <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
       <div>
@@ -231,9 +234,6 @@ function PageHeader({ providerName, listed, lastJobAt, now }: { providerName: st
           {lastJobAt && <span> · last job {relativeTime(lastJobAt, now)}</span>}
         </p>
       </div>
-      <Badge tone={listed ? "good" : "warn"} dot pulse={listed}>
-        {listed ? "listed on the registry" : "not listed"}
-      </Badge>
     </div>
   );
 }
@@ -242,23 +242,18 @@ function ListingCard({
   market,
   network,
   registryTopicId,
-  onOpenTab,
 }: {
   market: ReturnType<typeof marketPosition>;
   network: string;
   registryTopicId: string | null;
-  onOpenTab: (tab: "jobs" | "earnings" | "settings") => void;
 }) {
   if (!market.listing) {
     return (
       <Card title="Marketplace listing" padding={18}>
         <p style={{ margin: 0, color: "var(--muted)", fontSize: 13, lineHeight: 1.7 }}>
-          This account has no current registration on the registry topic, so agents can't discover it. A provider registers itself when it
-          starts up and advertises its endpoint and prices there.
+          Nothing published yet. Use <span style={{ color: "var(--muted-bright)" }}>Go live</span> above
+          to advertise this node&apos;s endpoint and prices.
         </p>
-        <button className="link" onClick={() => onOpenTab("settings")} style={{ fontSize: 12.5, marginTop: 12 }}>
-          Check the registry topic in Settings →
-        </button>
       </Card>
     );
   }

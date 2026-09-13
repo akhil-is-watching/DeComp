@@ -10,6 +10,7 @@ import { getRootEnvValue, loadRootEnvIntoProcess } from "./env-config";
 import { registerAccountProvisioningIpc } from "./ipc/account-provisioning-ipc";
 import { registerEnvConfigIpc } from "./ipc/env-config-ipc";
 import { registerMirrorIpc } from "./ipc/mirror-ipc";
+import { registerProviderRegistrationIpc } from "./ipc/provider-registration-ipc";
 import { registerSettingsIpc } from "./ipc/settings-ipc";
 import { restoredBounds, trackBounds } from "./window-state";
 
@@ -115,6 +116,7 @@ registerSettingsIpc();
 registerMirrorIpc();
 registerEnvConfigIpc();
 registerAccountProvisioningIpc();
+registerProviderRegistrationIpc();
 
 app.whenReady().then(() => {
   serveRenderer();

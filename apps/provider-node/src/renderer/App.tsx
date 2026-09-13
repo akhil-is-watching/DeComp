@@ -14,8 +14,10 @@ import { Overview } from "./screens/Overview";
 import { Jobs } from "./screens/Jobs";
 import { Earnings } from "./screens/Earnings";
 import { SettingsScreen } from "./screens/Settings";
+import { GoLive } from "./screens/GoLive";
 
 export type TabId = "overview" | "jobs" | "earnings" | "settings";
+export type View = TabId | "go-live";
 
 const TABS: readonly Segment<TabId>[] = [
   { id: "overview", label: "Overview", icon: <IconGauge size={13} /> },
@@ -30,7 +32,8 @@ export function App() {
   const { settings, save, refresh, refreshedAt, refreshing } = useAppData();
   const embeddedWallet = wallets.find(w => w.walletClientType === "privy");
   const provisioning = useAccountProvisioning(settings, save, embeddedWallet);
-  const [tab, setTab] = useState<TabId>("overview");
+  const [view, setView] = useState<View>("overview");
+  const tab: TabId = view === "go-live" ? "overview" : view;
 
   const signedIn =
     ready &&
@@ -71,7 +74,7 @@ export function App() {
         <TitleBar
           segments={TABS}
           tab={tab}
-          onTab={setTab}
+          onTab={setView}
           network={settings.network}
           onNetworkChange={network => void save({ network })}
           refreshedAt={refreshedAt}
@@ -80,11 +83,12 @@ export function App() {
           accountLabel={user?.email?.address ?? user?.id ?? "—"}
         />
         <main className="scroll-area" style={{ flex: 1, position: "relative", zIndex: 1 }}>
-          <div key={tab} className="rise" style={{ padding: "26px 28px 40px", maxWidth: 1180, margin: "0 auto" }}>
-            {tab === "overview" && <Overview onOpenTab={setTab} />}
-            {tab === "jobs" && <Jobs onOpenTab={setTab} />}
-            {tab === "earnings" && <Earnings onOpenTab={setTab} />}
-            {tab === "settings" && <SettingsScreen />}
+          <div key={view} className="rise" style={{ padding: "26px 28px 40px", maxWidth: 1180, margin: "0 auto" }}>
+            {view === "overview" && <Overview onOpenTab={setView} onGoLive={() => setView("go-live")} />}
+            {view === "go-live" && <GoLive onDone={() => setView("overview")} />}
+            {view === "jobs" && <Jobs onOpenTab={setView} />}
+            {view === "earnings" && <Earnings onOpenTab={setView} />}
+            {view === "settings" && <SettingsScreen />}
           </div>
         </main>
       </>

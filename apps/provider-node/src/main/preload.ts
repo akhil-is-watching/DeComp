@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { AuditEntry, RegistryEntry } from "@decomp/hcs-registry";
 import type { HederaNetwork } from "@decomp/hedera-x402";
 import type { ProvisionResult } from "./account-provisioning";
+import type { RegistrationRequest, RegistrationResult } from "./provider-registration";
 import type { EnvConfig } from "./env-config";
 import type { BalanceSnapshot } from "./mirror-reads";
 import type { Settings } from "./settings-store";
@@ -55,6 +56,9 @@ const api = {
   getEnvConfig: (): Promise<EnvConfig> => ipcRenderer.invoke("decomp:get-env-config"),
   provisionAccount: (address: string, associateTokenIds: string[]): Promise<ProvisionResult> =>
     ipcRenderer.invoke("decomp:provision-account", address, associateTokenIds),
+  /** Publishes this node's listing to the registry topic, signed by the embedded wallet. */
+  registerProvider: (request: RegistrationRequest): Promise<RegistrationResult> =>
+    ipcRenderer.invoke("decomp:register-provider", request),
 };
 
 contextBridge.exposeInMainWorld("decomp", api);
