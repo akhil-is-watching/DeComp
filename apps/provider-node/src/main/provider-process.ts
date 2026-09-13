@@ -7,6 +7,7 @@
  * holds PRIVY_APP_SECRET — no reason for the child to ever see it.
  */
 import { spawn, type ChildProcess } from "node:child_process";
+import { createServer } from "node:net";
 import type { HederaNetwork } from "@decomp/hedera-x402";
 import { findRepoRoot, resolveBunPath } from "./bun-runtime";
 
@@ -34,8 +35,27 @@ export function getProviderStatus(): ProviderStatus {
   return { running: current !== null, port: current?.port ?? null };
 }
 
-export function startProviderProcess(options: ProviderProcessOptions, onLog: (line: string) => void): void {
+/** A leftover process from a previous run (an old dev-reload orphan, a test fixture) produces an
+ * opaque Bun stack-trace dump if left to Bun's own EADDRINUSE error — checked upfront instead so
+ * the UI shows one readable sentence. */
+function assertPortFree(port: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const probe = createServer();
+    probe.once("error", (error: NodeJS.ErrnoException) => {
+      reject(
+        error.code === "EADDRINUSE"
+          ? new Error(`port ${port} is already in use — stop whatever's using it (an old provider run, a leftover test fixture) and try again`)
+          : error,
+      );
+    });
+    probe.once("listening", () => probe.close(() => resolve()));
+    probe.listen(port, "127.0.0.1");
+  });
+}
+
+export async function startProviderProcess(options: ProviderProcessOptions, onLog: (line: string) => void): Promise<void> {
   if (current) throw new Error("the provider is already running — stop it first");
+  await assertPortFree(options.port);
 
   const env: Record<string, string> = {};
   for (const key of INHERITED_ENV_KEYS) if (process.env[key]) env[key] = process.env[key]!;

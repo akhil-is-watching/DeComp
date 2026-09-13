@@ -46,7 +46,7 @@ export function registerProviderControlIpc(): void {
     const sign = createWindowSigner(win);
     const identity = await createEmbeddedWalletIdentity(sign, options.accountId, options.address, options.network);
 
-    startProviderProcess(
+    await startProviderProcess(
       {
         providerName: options.providerName,
         port: options.port,
