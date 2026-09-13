@@ -1,0 +1,22 @@
+/* Self-hosted (both OFL-licensed, from Google Fonts) to match decomp-landing.vercel.app exactly. */
+@font-face {
+  font-family: "Instrument Serif";
+  src: url("./fonts/instrument-serif-normal.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Instrument Serif";
+  src: url("./fonts/instrument-serif-italic.woff2") format("woff2");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("./fonts/jetbrains-mono-variable.woff2") format("woff2-variations");
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}

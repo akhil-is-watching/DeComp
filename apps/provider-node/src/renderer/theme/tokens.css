@@ -1,0 +1,68 @@
+/**
+ * Palette matches decomp-landing.vercel.app exactly (dark values are its real CSS custom
+ * properties, fetched from the live site). Light mode has no counterpart there — derived here,
+ * preserving the same accent and the same muted/line relationships, just inverted luminance.
+ */
+:root {
+  --ink: #070907;
+  --text: #e6ece2;
+  --accent: #c2f24a;
+  --accent-hover: #e2ffa8;
+  --line: #e2ecde1f;
+  --muted: #8b968a;
+  --muted-bright: #98a396;
+  --placeholder: #6d776c;
+
+  /* decorative glow blob tints, ported from the landing page's background */
+  --glow-accent: rgba(194, 242, 74, 0.14);
+  --glow-blue: rgba(110, 140, 255, 0.14);
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --ink: #f6f8f3;
+    --text: #0d120c;
+    --accent: #c2f24a;
+    --accent-hover: #9fd93a;
+    --line: #0d120c1f;
+    --muted: #5b665a;
+    --muted-bright: #3f4a3e;
+    --placeholder: #8a938a;
+
+    --glow-accent: rgba(159, 217, 58, 0.12);
+    --glow-blue: rgba(80, 110, 230, 0.1);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--ink);
+  color: var(--text);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-serif {
+  font-family: "Instrument Serif", serif;
+  font-weight: 400;
+}
+
+a {
+  color: inherit;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--ink);
+}

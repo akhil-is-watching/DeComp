@@ -26,7 +26,7 @@
     "bridge": "bun apps/bridge/src/index.ts",
     "dev:bridge": "bun --hot apps/bridge/src/index.ts",
     "test": "bun test",
-    "typecheck": "tsc --noEmit && cd apps/connector && tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc --noEmit && cd apps/connector && tsc -p tsconfig.json --noEmit && cd ../provider-node && tsc -p tsconfig.renderer.json --noEmit"
   },
   "dependencies": {
     "@hiero-ledger/sdk": "2.85.0",

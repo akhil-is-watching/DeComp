@@ -46,6 +46,9 @@ services/job-runner/outputs/
 # connector OAuth/user state (wallet ids, tokens) — not model weights, but still not for git
 apps/connector/data/*.sqlite*
 
+# provider-node's bundled bun binary, fetched at package time (scripts/fetch-bun-binary.ts)
+apps/provider-node/resources/bun/*
+
 # IntelliJ based IDEs
 .idea
 
