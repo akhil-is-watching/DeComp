@@ -1,8 +1,30 @@
 /** The only bridge between the isolated renderer and Node/Electron APIs. Keep this surface tiny. */
 import { contextBridge, ipcRenderer } from "electron";
 
+type SignResponse = { ok: true; signatureHex: string } | { ok: false; error: string };
+type SignHandler = (hashHex: string) => Promise<SignResponse>;
+
+// A module-level slot rather than re-registering an ipcRenderer listener per React render: the one
+// permanent listener below just calls whatever handler is currently set (or none, pre-login).
+let signHandler: SignHandler | null = null;
+
+ipcRenderer.on("decomp:sign-request", (_event, payload: { id: string; hashHex: string }) => {
+  const respond = (result: SignResponse) => ipcRenderer.send(`decomp:sign-response:${payload.id}`, result);
+  if (!signHandler) {
+    respond({ ok: false, error: "no embedded wallet is available in the renderer yet" });
+    return;
+  }
+  signHandler(payload.hashHex)
+    .then(respond)
+    .catch((error: unknown) => respond({ ok: false, error: error instanceof Error ? error.message : String(error) }));
+});
+
 const api = {
   getPrivyAppId: (): Promise<string | undefined> => ipcRenderer.invoke("decomp:get-privy-app-id"),
+  /** Registers (or clears, with `null`) the renderer's current ability to answer a sign request. */
+  setSignHandler: (handler: SignHandler | null): void => {
+    signHandler = handler;
+  },
 };
 
 contextBridge.exposeInMainWorld("decomp", api);
