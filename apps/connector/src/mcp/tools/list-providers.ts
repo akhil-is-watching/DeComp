@@ -1,11 +1,13 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { discoverProviders } from "@decomp/agent";
+import { discoverLiveProviders } from "@decomp/agent";
 import { formatTinybars } from "@decomp/hedera-x402";
 import { env } from "../../env";
 
 export const listProvidersTool = {
   name: "list_providers",
-  description: "List GPU providers currently registered, with their price per second. Optionally filter by job type.",
+  description:
+    "List GPU providers currently online and able to take a job, with their price per second. A provider whose " +
+    "registration is on-chain but whose GPU runner isn't answering right now is left out. Optionally filter by job type.",
   inputSchema: {
     type: "object" as const,
     properties: { jobType: { type: "string", enum: ["benchmark", "mandelbrot"], description: "Only show providers offering this job type." } },
@@ -19,9 +21,12 @@ export async function listProviders(args: { jobType?: string }): Promise<CallToo
   const jobTypes = args.jobType ? [args.jobType] : ["benchmark", "mandelbrot"];
   const lines: string[] = [];
   for (const jobType of jobTypes) {
-    const candidates = await discoverProviders(env.registryTopicId, jobType);
+    // A registration on HCS outlives the process that published it, so a raw registry read would
+    // list nodes whose runner went offline hours ago. Only candidates whose /health answers right
+    // now (see @decomp/agent's discovery.ts) are worth sending a job to.
+    const candidates = await discoverLiveProviders(env.registryTopicId, jobType);
     if (candidates.length === 0) {
-      lines.push(`${jobType}: no providers currently offer this`);
+      lines.push(`${jobType}: no providers currently online for this`);
       continue;
     }
     lines.push(`${jobType}:`);
