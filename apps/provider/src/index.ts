@@ -237,10 +237,21 @@ fetchFacilitatorFeePayer(network).then(
   feePayer => console.log(`[provider] facilitator ${facilitatorUrl} fee payer ${feePayer}`),
   error => console.error("[provider] facilitator unreachable:", error),
 );
-runner.health().then(
-  ({ job_types }) => console.log(`[provider] job runner ok: ${Object.keys(job_types).join(", ")}`),
-  () => console.error(`[provider] job runner not reachable — start it with \`bun run dev:runner\``),
-);
+// The desktop node spawns the runner and this process at the same moment, so one immediate check
+// races the runner's boot and prints a "not reachable" that's already false by the time it's read.
+// Retry for a while before saying anything.
+void (async () => {
+  for (let attempt = 0; attempt < 30; attempt++) {
+    try {
+      const { job_types } = await runner.health();
+      console.log(`[provider] job runner ok: ${Object.keys(job_types).join(", ")}`);
+      return;
+    } catch {
+      await Bun.sleep(1_000);
+    }
+  }
+  console.error("[provider] job runner not reachable — start it with `bun run dev:runner`");
+})();
 if (computeTokenId && tokenSpec) {
   // An unassociated payTo fails settlement with a generic error, so say so up front.
   isTokenAssociated(payTo, computeTokenId).then(
