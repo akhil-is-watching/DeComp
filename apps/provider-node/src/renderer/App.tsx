@@ -28,11 +28,25 @@ export function App() {
 
   if (!ready || !settings) return <Centered>loading…</Centered>;
   if (!authenticated) return <Login />;
+
+  // Mounted unconditionally from here on, before the provisioning gate below: provisioning itself
+  // asks the renderer to sign (via this component's IPC handler registration), so it has to be
+  // live *before* that request can ever be answered, not only once the dashboard renders.
   if (!embeddedWallet || provisioning.status === "provisioning") {
-    return <Centered>setting up your Hedera account — this only happens once…</Centered>;
+    return (
+      <>
+        <SigningBridge />
+        <Centered>setting up your Hedera account — this only happens once…</Centered>
+      </>
+    );
   }
   if (provisioning.status === "error") {
-    return <Centered>could not set up your account: {provisioning.error}</Centered>;
+    return (
+      <>
+        <SigningBridge />
+        <Centered>could not set up your account: {provisioning.error}</Centered>
+      </>
+    );
   }
 
   const Active = TABS.find(t => t.id === tab)!.Component;

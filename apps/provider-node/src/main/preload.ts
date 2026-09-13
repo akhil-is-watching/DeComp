@@ -13,13 +13,24 @@ type SignHandler = (hashHex: string) => Promise<SignResponse>;
 // permanent listener below just calls whatever handler is currently set (or none, pre-login).
 let signHandler: SignHandler | null = null;
 
+/** Waits briefly for setSignHandler to register — it's a React effect, so it can genuinely lose
+ * the race against main's very first sign request (e.g. auto-provisioning firing the instant an
+ * embedded wallet appears), not just be permanently absent. */
+async function waitForSignHandler(timeoutMs = 5_000): Promise<SignHandler | null> {
+  const deadline = Date.now() + timeoutMs;
+  while (!signHandler && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  return signHandler;
+}
+
 ipcRenderer.on("decomp:sign-request", (_event, payload: { id: string; hashHex: string }) => {
   const respond = (result: SignResponse) => ipcRenderer.send(`decomp:sign-response:${payload.id}`, result);
-  if (!signHandler) {
-    respond({ ok: false, error: "no embedded wallet is available in the renderer yet" });
-    return;
-  }
-  signHandler(payload.hashHex)
+  waitForSignHandler()
+    .then(handler => {
+      if (!handler) throw new Error("no embedded wallet is available in the renderer yet");
+      return handler(payload.hashHex);
+    })
     .then(respond)
     .catch((error: unknown) => respond({ ok: false, error: error instanceof Error ? error.message : String(error) }));
 });
