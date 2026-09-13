@@ -49,6 +49,17 @@ export function startProviderProcess(options: ProviderProcessOptions, onLog: (li
     JOB_RUNNER_URL: options.jobRunnerUrl ?? "http://127.0.0.1:8100",
     HEDERA_NETWORK: options.network,
     [`${options.providerName}_ACCOUNT_ID`]: options.accountId,
+    // Bun auto-loads the repo root's own .env for any child `bun run` process (cwd is the repo
+    // root, below) — that .env is exactly where this app's own env-config.ts reads REGISTRY_TOPIC_ID/
+    // BRIDGE_URL/PRIVY_APP_SECRET/*_WALLET_ID from for *this* process. Leaving those keys merely
+    // absent here does not stop Bun backfilling them from that file, which would make the child
+    // attempt its own (REST-signed, embedded-wallet-incompatible) bridge/registry publish — hence
+    // explicit blanks, not omission, to actually shadow the .env values.
+    REGISTRY_TOPIC_ID: "",
+    BRIDGE_URL: "",
+    PUBLIC_URL: `http://127.0.0.1:${options.port}`,
+    PRIVY_APP_SECRET: "",
+    [`${options.providerName}_WALLET_ID`]: "",
   });
   if (options.tokenOffers) env.PROVIDER_TOKEN_OFFERS = options.tokenOffers;
   if (options.computeTokenId) env.COMPUTE_TOKEN_ID = options.computeTokenId;
