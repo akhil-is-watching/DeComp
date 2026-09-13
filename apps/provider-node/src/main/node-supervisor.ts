@@ -12,7 +12,7 @@
  * given a registry topic — the app publishes its own registration, since only the app has a full
  * Hedera identity for the embedded wallet.
  */
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { BrowserWindow } from "electron";
@@ -123,8 +123,54 @@ export function checkRunnerPath(runnerPath: string | null): RunnerPathStatus {
   };
 }
 
+/** PIDs of whatever is listening on `port`, macOS's `lsof` being the only place to ask. */
+function pidsOnPort(port: number): number[] {
+  try {
+    return execFileSync("lsof", ["-ti", `tcp:${port}`], { encoding: "utf8" })
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map(Number);
+  } catch {
+    return []; // lsof exits non-zero when nothing matches
+  }
+}
+
+/**
+ * A run that ended without stopNode getting to run — the app crashed, was force-quit, or this is a
+ * second launch — leaves the runner or provider still bound to their ports. uvicorn then refuses to
+ * bind on the next Start ("address already in use") and the whole node fails before it begins.
+ * Since these ports are only ever used by processes this app itself spawns, it's safe to just
+ * reclaim them: SIGTERM, then SIGKILL anything still holding on after a grace period.
+ */
+async function freePort(port: number, timeoutMs = 3_000): Promise<void> {
+  let pids = pidsOnPort(port);
+  if (pids.length === 0) return;
+  for (const pid of pids) {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      // already gone
+    }
+  }
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline && pidsOnPort(port).length > 0) {
+    await new Promise(resolve => setTimeout(resolve, 150));
+  }
+  pids = pidsOnPort(port);
+  for (const pid of pids) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // already gone
+    }
+  }
+}
+
 export async function startNode(win: BrowserWindow, settings: Settings): Promise<void> {
-  if (state.running) return;
+  // A stale run (or a Start clicked while already running) is a restart, not a no-op — stop
+  // whatever this app itself is tracking before starting fresh.
+  if (state.running) await stopNode("restarting");
   if (!settings.accountId) throw new Error("this node has no Hedera account yet");
 
   const root = repoRoot(settings.runnerPath);
@@ -140,6 +186,10 @@ export async function startNode(win: BrowserWindow, settings: Settings): Promise
   if (!existsSync(python)) {
     throw new Error("the job runner isn't set up yet — run `bun run setup:runner` in the checkout");
   }
+
+  // Orphaned from a previous run this app instance never tracked — reclaim before spawning fresh
+  // children, rather than have uvicorn or Bun.serve fail to bind and take the whole node down.
+  await Promise.all([freePort(RUNNER_PORT), freePort(PROVIDER_PORT)]);
 
   update({ running: true, runner: "starting", provider: "starting", reachableAt: null, error: null });
   signer = await startSignerEndpoint(win);
