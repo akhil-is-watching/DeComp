@@ -5,9 +5,12 @@ import type { Settings } from "../../main/settings-store";
 export type ProvisioningState = { status: "idle" | "provisioning" | "done" | "error"; error?: string };
 
 /**
- * Once logged in with an embedded wallet and no account id saved yet, creates and funds a fresh
- * Hedera account for it automatically — see main/account-provisioning.ts for what that actually
- * does and its one real dependency (this project's own OPERATOR identity as the one-time payer).
+ * Once logged in with an embedded wallet that doesn't match the saved account id's wallet yet,
+ * creates and funds a fresh Hedera account for it automatically — see main/account-provisioning.ts
+ * for what that actually does and its one real dependency (this project's own OPERATOR identity as
+ * the one-time payer). Re-provisions on switching to a different Google/Privy login too: the saved
+ * accountId is keyed to whichever embedded wallet provisioned it, so signing in with a different
+ * account (a new embedded wallet address) needs its own fresh account, not the previous one's.
  */
 export function useAccountProvisioning(
   settings: Settings | null,
@@ -15,11 +18,16 @@ export function useAccountProvisioning(
   embeddedWallet: ConnectedWallet | undefined,
 ): ProvisioningState {
   const [state, setState] = useState<ProvisioningState>({ status: "idle" });
-  const started = useRef(false);
+  // Keyed by wallet address rather than a plain boolean so switching to a different embedded
+  // wallet (a different login) re-triggers provisioning instead of being permanently skipped by a
+  // stale "already started" flag left over from the first login this session.
+  const startedForAddress = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!settings || !embeddedWallet || settings.accountId || started.current) return;
-    started.current = true;
+    if (!settings || !embeddedWallet) return;
+    const alreadyProvisioned = settings.accountId && settings.embeddedWalletAddress?.toLowerCase() === embeddedWallet.address.toLowerCase();
+    if (alreadyProvisioned || startedForAddress.current === embeddedWallet.address) return;
+    startedForAddress.current = embeddedWallet.address;
     setState({ status: "provisioning" });
 
     const tokenIds = [...new Set([...settings.associateTokenIds, ...(settings.computeTokenId ? [settings.computeTokenId] : [])])];
@@ -30,7 +38,7 @@ export function useAccountProvisioning(
         setState({ status: "done" });
       })
       .catch((error: unknown) => {
-        started.current = false;
+        startedForAddress.current = null;
         setState({ status: "error", error: error instanceof Error ? error.message : String(error) });
       });
   }, [settings, embeddedWallet, save]);
