@@ -10,7 +10,7 @@ export const listProvidersTool = {
     "registration is on-chain but whose GPU runner isn't answering right now is left out. Optionally filter by job type.",
   inputSchema: {
     type: "object" as const,
-    properties: { jobType: { type: "string", enum: ["benchmark", "mandelbrot"], description: "Only show providers offering this job type." } },
+    properties: { jobType: { type: "string", enum: ["benchmark", "mandelbrot", "imagegen"], description: "Only show providers offering this job type." } },
   },
 };
 
@@ -18,7 +18,7 @@ export async function listProviders(args: { jobType?: string }): Promise<CallToo
   if (!env.registryTopicId) {
     return { content: [{ type: "text", text: "No REGISTRY_TOPIC_ID is configured; there's no registry to query." }], isError: true };
   }
-  const jobTypes = args.jobType ? [args.jobType] : ["benchmark", "mandelbrot"];
+  const jobTypes = args.jobType ? [args.jobType] : ["benchmark", "mandelbrot", "imagegen"];
   const lines: string[] = [];
   for (const jobType of jobTypes) {
     // A registration on HCS outlives the process that published it, so a raw registry read would

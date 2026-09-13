@@ -14,16 +14,18 @@ export const runGpuJobTool = {
   description:
     "Pay for and run a GPU job on the DeComp network, using your own wallet. Blocks until the job " +
     `finishes or a budget is reached (at most ${env.maxBudgetHbar} ℏ, regardless of what is asked for). ` +
-    "Job types: 'benchmark' (a dense matmul benchmark) and 'mandelbrot' (renders a PNG, returned inline).",
+    "Job types: 'benchmark' (a dense matmul benchmark), 'mandelbrot' (renders a PNG, returned inline), and " +
+    "'imagegen' (renders a seeded plasma-art PNG asset, returned inline).",
   inputSchema: {
     type: "object" as const,
     properties: {
-      jobType: { type: "string", enum: ["benchmark", "mandelbrot"] },
+      jobType: { type: "string", enum: ["benchmark", "mandelbrot", "imagegen"] },
       params: {
         type: "object",
         description:
           "benchmark: backend ('mlx'|'torch'), size (512|1024|2048|4096), duration_s (0.5-600), seed. " +
-          "mandelbrot: width/height (64-4096), max_iter (16-20000), center_x, center_y, span (0-8].",
+          "mandelbrot: width/height (64-4096), max_iter (16-20000), center_x, center_y, span (0-8]. " +
+          "imagegen: width/height (64-4096), seed.",
       },
       maxBudgetHbar: { type: "number", description: `Stop paying beyond this many HBAR (capped at ${env.maxBudgetHbar}).` },
       provider: { type: "string", description: "Optional: a specific provider URL instead of routing via the registry." },

@@ -37,9 +37,19 @@ function validateMandelbrot(params: Record<string, unknown>): ValidationResult {
   return { ok: true, params: { width, height, max_iter: maxIter, center_x: centerX, center_y: centerY, span } };
 }
 
+function validateImagegen(params: Record<string, unknown>): ValidationResult {
+  const width = Math.trunc(num(params, "width", 512));
+  const height = Math.trunc(num(params, "height", width));
+  if (!(width >= 64 && width <= 4096 && height >= 64 && height <= 4096)) {
+    return { ok: false, error: "width and height must be between 64 and 4096" };
+  }
+  return { ok: true, params: { width, height, seed: Math.trunc(num(params, "seed", 0)) } };
+}
+
 const VALIDATORS: Record<string, (params: Record<string, unknown>) => ValidationResult> = {
   benchmark: validateBenchmark,
   mandelbrot: validateMandelbrot,
+  imagegen: validateImagegen,
 };
 
 export function validateJobParams(jobType: string, params: Record<string, unknown>): ValidationResult {

@@ -47,6 +47,22 @@ describe("mandelbrot", () => {
   });
 });
 
+describe("imagegen", () => {
+  test("defaults are valid", () => {
+    expect(validateJobParams("imagegen", {})).toEqual({ ok: true, params: { width: 512, height: 512, seed: 0 } });
+  });
+  test("height defaults to width when omitted", () => {
+    const result = validateJobParams("imagegen", { width: 1024 });
+    expect(result.ok && result.params.height).toBe(1024);
+  });
+  test("rejects width above 4096", () => {
+    expect(validateJobParams("imagegen", { width: 5000 }).ok).toBe(false);
+  });
+  test("rejects height below 64", () => {
+    expect(validateJobParams("imagegen", { height: 10 }).ok).toBe(false);
+  });
+});
+
 test("an unknown jobType is rejected", () => {
-  expect(validateJobParams("sdxl", {})).toEqual({ ok: false, error: "jobType must be one of benchmark, mandelbrot" });
+  expect(validateJobParams("sdxl", {})).toEqual({ ok: false, error: "jobType must be one of benchmark, mandelbrot, imagegen" });
 });
