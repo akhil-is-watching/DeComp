@@ -10,7 +10,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AuditEntry, RegistryEntry } from "@decomp/hcs-registry";
 import type { Settings } from "../../main/settings-store";
-import type { BalanceSnapshot } from "../../main/mirror-reads";
+import type { BalanceSnapshot, NetworkActivity } from "../../main/mirror-reads";
 
 /** Long enough not to hammer the public mirror node; short enough that a finished job shows up. */
 const REFRESH_MS = 60_000;
@@ -21,6 +21,8 @@ export type AppData = {
   balance: BalanceSnapshot | null;
   audits: AuditEntry[];
   registry: RegistryEntry[];
+  /** What the rest of the market did in the last 24h. */
+  network: NetworkActivity;
   /** True only for the very first load — a refresh holds the previous render instead of flashing. */
   initialLoading: boolean;
   refreshing: boolean;
@@ -48,6 +50,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const [balance, setBalance] = useState<BalanceSnapshot | null>(null);
   const [audits, setAudits] = useState<AuditEntry[]>([]);
   const [registry, setRegistry] = useState<RegistryEntry[]>([]);
+  const [networkActivity, setNetworkActivity] = useState<NetworkActivity>({ jobs24h: 0, paidTinybars24h: "0", earningNodes24h: 0 });
   const [loaded, setLoaded] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -98,13 +101,18 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       // blank out the two that did come back.
       const [balanceResult, auditResult, registryResult] = await Promise.allSettled([
         window.decomp.getBalance(accountId, network, computeTokenId ?? undefined),
-        auditTopicId ? window.decomp.getProviderAudits(auditTopicId, accountId, network) : Promise.resolve([]),
+        auditTopicId
+          ? window.decomp.getProviderAudits(auditTopicId, accountId, network)
+          : Promise.resolve({ entries: [], network: { jobs24h: 0, paidTinybars24h: "0", earningNodes24h: 0 } }),
         registryTopicId ? window.decomp.getRegistry(registryTopicId, network) : Promise.resolve([]),
       ]);
       if (cancelled) return;
 
       if (balanceResult.status === "fulfilled") setBalance(balanceResult.value);
-      if (auditResult.status === "fulfilled") setAudits(auditResult.value);
+      if (auditResult.status === "fulfilled") {
+        setAudits(auditResult.value.entries);
+        setNetworkActivity(auditResult.value.network);
+      }
       if (registryResult.status === "fulfilled") setRegistry(registryResult.value);
 
       const failure = [balanceResult, auditResult, registryResult].find(r => r.status === "rejected");
@@ -144,13 +152,14 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       balance,
       audits,
       registry,
+      network: networkActivity,
       initialLoading: !settings || !loaded,
       refreshing,
       error,
       refreshedAt,
       refresh,
     }),
-    [settings, save, balance, audits, registry, loaded, refreshing, error, refreshedAt, refresh],
+    [settings, save, balance, audits, registry, networkActivity, loaded, refreshing, error, refreshedAt, refresh],
   );
 
   return <Context.Provider value={value}>{children}</Context.Provider>;

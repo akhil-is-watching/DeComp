@@ -19,10 +19,31 @@ export async function fetchBalance(accountId: string, network: HederaNetwork, co
   return { hbarTinybars: hbar.toString(), computeTokenUnits: token === null ? null : token.toString() };
 }
 
-/** Every audit-topic entry where this account was the provider paid — the source for Jobs and Earnings. */
-export async function fetchProviderAudits(auditTopicId: string, accountId: string, network: HederaNetwork): Promise<AuditEntry[]> {
-  const entries = await readAudits(auditTopicId, { network });
-  return entries.filter(e => e.provider.account === accountId).sort((a, b) => (a.consensusTimestamp < b.consensusTimestamp ? 1 : -1));
+/** What the whole market did recently — the answer to "is anyone actually buying?". */
+export type NetworkActivity = { jobs24h: number; paidTinybars24h: string; earningNodes24h: number };
+
+export type ProviderAudits = { entries: AuditEntry[]; network: NetworkActivity };
+
+/**
+ * This account's audit entries, plus a summary of everyone else's from the same read. One topic
+ * fetch answers both "what have I earned" and "what am I missing" — worth having, because a node
+ * that isn't listed or isn't running has no other way to see that the market is live.
+ */
+export async function fetchProviderAudits(auditTopicId: string, accountId: string, network: HederaNetwork): Promise<ProviderAudits> {
+  const all = await readAudits(auditTopicId, { network });
+  const since = Date.now() - 86_400_000;
+  const recent = all.filter(e => Number(e.consensusTimestamp.split(".")[0]) * 1000 >= since);
+
+  return {
+    entries: all
+      .filter(e => e.provider.account === accountId)
+      .sort((a, b) => (a.consensusTimestamp < b.consensusTimestamp ? 1 : -1)),
+    network: {
+      jobs24h: recent.length,
+      paidTinybars24h: recent.reduce((sum, e) => sum + BigInt(e.totalPaid), 0n).toString(),
+      earningNodes24h: new Set(recent.map(e => e.provider.account)).size,
+    },
+  };
 }
 
 /**

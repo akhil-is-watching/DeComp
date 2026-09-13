@@ -1,12 +1,12 @@
 /** The only bridge between the isolated renderer and Node/Electron APIs. Keep this surface tiny. */
 import { contextBridge, ipcRenderer } from "electron";
-import type { AuditEntry, RegistryEntry } from "@decomp/hcs-registry";
+import type { RegistryEntry } from "@decomp/hcs-registry";
 import type { HederaNetwork } from "@decomp/hedera-x402";
 import type { ProvisionResult } from "./account-provisioning";
 import type { RegistrationRequest, RegistrationResult } from "./provider-registration";
 import type { NodeRunState, ProcessName, RunnerPathStatus, RunnerSetupResult } from "./node-supervisor";
 import type { EnvConfig } from "./env-config";
-import type { BalanceSnapshot } from "./mirror-reads";
+import type { BalanceSnapshot, ProviderAudits } from "./mirror-reads";
 import type { Settings } from "./settings-store";
 
 type SignResponse = { ok: true; signatureHex: string } | { ok: false; error: string };
@@ -48,7 +48,7 @@ const api = {
   saveSettings: (patch: Partial<Settings>): Promise<Settings> => ipcRenderer.invoke("decomp:save-settings", patch),
   getBalance: (accountId: string, network: HederaNetwork, computeTokenId?: string): Promise<BalanceSnapshot> =>
     ipcRenderer.invoke("decomp:get-balance", accountId, network, computeTokenId),
-  getProviderAudits: (auditTopicId: string, accountId: string, network: HederaNetwork): Promise<AuditEntry[]> =>
+  getProviderAudits: (auditTopicId: string, accountId: string, network: HederaNetwork): Promise<ProviderAudits> =>
     ipcRenderer.invoke("decomp:get-provider-audits", auditTopicId, accountId, network),
   /** Every provider currently listed on the registry topic — this node's own listing included. */
   getRegistry: (registryTopicId: string, network: HederaNetwork): Promise<RegistryEntry[]> =>
