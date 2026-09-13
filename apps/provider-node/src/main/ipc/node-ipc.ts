@@ -1,11 +1,12 @@
 import { BrowserWindow, ipcMain } from "electron";
 import { loadSettings } from "../settings-store";
-import { checkRunnerPath, nodeLog, nodeState, onNodeChange, startNode, stopNode } from "../node-supervisor";
+import { checkRunnerPath, nodeLog, nodeState, onNodeChange, setupRunner, startNode, stopNode } from "../node-supervisor";
 
 export function registerNodeIpc(): void {
   ipcMain.handle("decomp:node-state", () => nodeState());
   ipcMain.handle("decomp:node-log", () => nodeLog());
   ipcMain.handle("decomp:check-runner-path", (_event, runnerPath: string | null) => checkRunnerPath(runnerPath));
+  ipcMain.handle("decomp:setup-runner", () => setupRunner(loadSettings()));
   ipcMain.handle("decomp:stop-node", () => stopNode());
   ipcMain.handle("decomp:start-node", async event => {
     const win = BrowserWindow.fromWebContents(event.sender);

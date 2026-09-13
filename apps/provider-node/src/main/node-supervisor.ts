@@ -16,6 +16,7 @@ import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { BrowserWindow } from "electron";
+import { fetchRegistry } from "./mirror-reads";
 import { startSignerEndpoint, type SignerEndpoint } from "./node-signer";
 import type { Settings } from "./settings-store";
 
@@ -119,7 +120,7 @@ export function checkRunnerPath(runnerPath: string | null): RunnerPathStatus {
     ok: pythonReady,
     root,
     pythonReady,
-    message: pythonReady ? `found at ${root}` : `found the checkout at ${root}, but the runner isn't set up — run \`bun run setup:runner\` there`,
+    message: pythonReady ? `found at ${root}` : `found the checkout at ${root}, but the Python environment for the runner hasn't been created yet`,
   };
 }
 
@@ -167,6 +168,98 @@ async function freePort(port: number, timeoutMs = 3_000): Promise<void> {
   }
 }
 
+/**
+ * Where a command actually lives. A GUI app inherits a minimal PATH — not the user's login shell —
+ * so `bun` installed by nvm, asdf or a custom prefix is invisible to a bare spawn("bun"). Check the
+ * usual install locations, then ask the login shell, which is the only thing that knows the rest.
+ */
+function findBinary(name: string): string | null {
+  const home = process.env.HOME ?? "";
+  const direct = [join(home, `.bun/bin/${name}`), join(home, `.local/bin/${name}`), `/opt/homebrew/bin/${name}`, `/usr/local/bin/${name}`].find(
+    existsSync,
+  );
+  if (direct) return direct;
+  try {
+    const found = execFileSync(process.env.SHELL || "/bin/zsh", ["-lc", `command -v ${name}`], { encoding: "utf8", timeout: 5_000 }).trim();
+    return found && existsSync(found) ? found : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The offers this node actually published, read back from the registry.
+ *
+ * Without this the provider falls back to its own defaults (benchmark at 0.02 ℏ/s and nothing
+ * else), which is not what the listing advertises — so agents cap each payment at the *listed*
+ * price, the provider's 402 asks for more, and every job is refused as "no eligible provider".
+ * Charging exactly what was advertised is the whole point.
+ */
+async function listedOffers(settings: Settings): Promise<{ offers: string; tickSeconds: number } | null> {
+  if (!settings.registryTopicId || !settings.accountId) return null;
+  try {
+    const registry = await fetchRegistry(settings.registryTopicId, settings.network);
+    const listing = registry.find(entry => entry.hederaAccount === settings.accountId);
+    if (!listing || listing.jobTypes.length === 0) return null;
+    return {
+      offers: listing.jobTypes.map(job => `${job.name}:${job.pricePerSecTinybars}`).join(","),
+      tickSeconds: listing.jobTypes[0]!.tickSeconds,
+    };
+  } catch {
+    return null; // an unreadable registry shouldn't block starting; the defaults still serve
+  }
+}
+
+export type RunnerSetupResult = { ok: boolean; message: string };
+
+/**
+ * Creates the job runner's virtualenv from inside the app.
+ *
+ * Telling someone who installed a .dmg to open a terminal and run `bun run setup:runner` is not a
+ * setup step, it's a dead end — so do it here. uv is what the repo's own script uses and it
+ * provisions its own CPython 3.12, which matters because macOS ships 3.9 and mlx/torch need newer.
+ */
+export async function setupRunner(settings: Settings): Promise<RunnerSetupResult> {
+  const root = repoRoot(settings.runnerPath);
+  if (!root) return { ok: false, message: "no DeComp checkout found — set the GPU runner path in Settings" };
+
+  const uv = findBinary("uv");
+  if (!uv) {
+    return {
+      ok: false,
+      message: "uv isn't installed — install it from astral.sh/uv (it provisions the Python the runner needs), then try again",
+    };
+  }
+
+  const cwd = join(root, "services/job-runner");
+  record("runner", "setting up the Python environment (this downloads Python and PyTorch — give it a few minutes)");
+  const steps: string[][] = [
+    [uv, "venv", "--python", "3.12", ".venv"],
+    [uv, "pip", "install", "--python", ".venv/bin/python", "-r", "requirements.txt"],
+  ];
+
+  for (const [command, ...args] of steps) {
+    const result = await runToCompletion(command!, args, cwd);
+    if (result !== 0) return { ok: false, message: `setup failed while running \`${[command, ...args].join(" ")}\` — see the log above` };
+  }
+  record("runner", "setup complete — the node can start now");
+  return { ok: true, message: "the job runner is set up" };
+}
+
+/** Runs one setup command, streaming its output into the same log the Engine tab already shows. */
+function runToCompletion(command: string, args: string[], cwd: string): Promise<number> {
+  return new Promise(resolve => {
+    const child = spawn(command, args, { cwd, env: process.env, stdio: ["ignore", "pipe", "pipe"] });
+    child.stdout?.on("data", (chunk: Buffer) => record("runner", chunk.toString()));
+    child.stderr?.on("data", (chunk: Buffer) => record("runner", chunk.toString()));
+    child.on("error", error => {
+      record("runner", `failed to start: ${error.message}`);
+      resolve(1);
+    });
+    child.on("exit", code => resolve(code ?? 1));
+  });
+}
+
 export async function startNode(win: BrowserWindow, settings: Settings): Promise<void> {
   // A stale run (or a Start clicked while already running) is a restart, not a no-op — stop
   // whatever this app itself is tracking before starting fresh.
@@ -184,8 +277,15 @@ export async function startNode(win: BrowserWindow, settings: Settings): Promise
 
   const python = join(root, "services/job-runner/.venv/bin/python");
   if (!existsSync(python)) {
-    throw new Error("the job runner isn't set up yet — run `bun run setup:runner` in the checkout");
+    throw new Error("the job runner's Python environment hasn't been created yet — use Set up runner on the Engine tab");
   }
+
+  // Bun runs the provider, and a GUI app's PATH won't find it where most people install it.
+  const bun = findBinary("bun");
+  if (!bun) throw new Error("can't find Bun — install it from bun.sh, then try again");
+
+  // Charge exactly what was advertised; see listedOffers.
+  const listed = await listedOffers(settings);
 
   // Orphaned from a previous run this app instance never tracked — reclaim before spawning fresh
   // children, rather than have uvicorn or Bun.serve fail to bind and take the whole node down.
@@ -198,7 +298,7 @@ export async function startNode(win: BrowserWindow, settings: Settings): Promise
     cwd: join(root, "services/job-runner"),
   });
 
-  spawnChild("provider", "bun", [join(root, "apps/provider/src/index.ts")], {
+  spawnChild("provider", bun, [join(root, "apps/provider/src/index.ts")], {
     cwd: root,
     env: {
       PROVIDER_NAME: "NODE",
@@ -208,6 +308,7 @@ export async function startNode(win: BrowserWindow, settings: Settings): Promise
       JOB_RUNNER_URL: `http://127.0.0.1:${RUNNER_PORT}`,
       PORT: String(PROVIDER_PORT),
       HEDERA_NETWORK: settings.network,
+      ...(listed ? { PROVIDER_OFFERS: listed.offers, TICK_SECONDS: String(listed.tickSeconds) } : {}),
       ...(settings.bridgeUrl ? { BRIDGE_URL: settings.bridgeUrl } : {}),
       ...(settings.computeTokenId ? { COMPUTE_TOKEN_ID: settings.computeTokenId } : {}),
       // Deliberately no REGISTRY_TOPIC_ID: the app publishes its own registration.

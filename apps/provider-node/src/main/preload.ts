@@ -4,7 +4,7 @@ import type { AuditEntry, RegistryEntry } from "@decomp/hcs-registry";
 import type { HederaNetwork } from "@decomp/hedera-x402";
 import type { ProvisionResult } from "./account-provisioning";
 import type { RegistrationRequest, RegistrationResult } from "./provider-registration";
-import type { NodeRunState, ProcessName, RunnerPathStatus } from "./node-supervisor";
+import type { NodeRunState, ProcessName, RunnerPathStatus, RunnerSetupResult } from "./node-supervisor";
 import type { EnvConfig } from "./env-config";
 import type { BalanceSnapshot } from "./mirror-reads";
 import type { Settings } from "./settings-store";
@@ -61,6 +61,8 @@ const api = {
   getNodeLog: (): Promise<{ name: ProcessName; line: string; at: number }[]> => ipcRenderer.invoke("decomp:node-log"),
   /** Same check Start runs, exposed so Settings/Engine can point out a bad path before the user tries. */
   checkRunnerPath: (runnerPath: string | null): Promise<RunnerPathStatus> => ipcRenderer.invoke("decomp:check-runner-path", runnerPath),
+  /** Creates the job runner's Python environment, so setup never needs a terminal. Slow: it downloads Python and PyTorch. */
+  setupRunner: (): Promise<RunnerSetupResult> => ipcRenderer.invoke("decomp:setup-runner"),
   onNodeChanged: (listener: (state: NodeRunState) => void): (() => void) => {
     const handler = (_event: unknown, state: NodeRunState) => listener(state);
     ipcRenderer.on("decomp:node-changed", handler);

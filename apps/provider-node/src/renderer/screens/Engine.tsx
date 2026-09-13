@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Card, DetailRow, SectionTitle } from "../components/Surface";
 import { Badge } from "../components/Badge";
+import { Button } from "../components/Button";
 import { EmptyState } from "../components/EmptyState";
 import { ServingStatus } from "../components/NodeStatus";
 import { IconAlert, IconCheck, IconCpu, IconTable } from "../components/icons";
@@ -15,8 +16,19 @@ import { useNodeRun } from "../hooks/useNodeRun";
 export function Engine({ onOpenTab }: { onOpenTab: (tab: "settings") => void }) {
   const { settings } = useAppData();
   const node = useNodeRun();
-  const pathCheck = useRunnerPathCheck(settings?.runnerPath ?? null, node.state.running);
+  const [setup, setSetup] = useState<{ status: "idle" | "running" | "done" | "error"; message?: string }>({ status: "idle" });
+  const pathCheck = useRunnerPathCheck(settings?.runnerPath ?? null, node.state.running, setup.status);
   const logRef = useRef<HTMLDivElement>(null);
+
+  async function runSetup() {
+    setSetup({ status: "running" });
+    try {
+      const result = await window.decomp.setupRunner();
+      setSetup({ status: result.ok ? "done" : "error", message: result.message });
+    } catch (error) {
+      setSetup({ status: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
 
   useEffect(() => {
     const el = logRef.current;
@@ -57,6 +69,21 @@ export function Engine({ onOpenTab }: { onOpenTab: (tab: "settings") => void }) 
             </>
           )}
         </div>
+
+        {/* Setting up the runner is the app's job, not a terminal errand it sends the user on. */}
+        {pathCheck && !pathCheck.ok && pathCheck.root && (
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginTop: 14 }}>
+            <Button onClick={() => void runSetup()} disabled={setup.status === "running"} style={{ padding: "9px 16px", fontSize: 13 }}>
+              {setup.status === "running" ? "setting up…" : "Set up runner"}
+            </Button>
+            <span style={{ fontSize: 12.5, color: setup.status === "error" ? "var(--viz-crit)" : "var(--muted)", lineHeight: 1.6 }}>
+              {setup.message ??
+                (setup.status === "running"
+                  ? "downloading Python and PyTorch — this takes a few minutes, watch the log below"
+                  : "creates the runner's Python environment on this Mac")}
+            </span>
+          </div>
+        )}
       </Card>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -135,9 +162,11 @@ function ProcessBadge({ status }: { status: "stopped" | "starting" | "ready" | "
 
 type PathCheck = { ok: boolean; message: string };
 
-/** Mirrors what Start will do, re-checked whenever the path or run state changes so a fixed path clears the warning without a restart. */
-function useRunnerPathCheck(runnerPath: string | null, running: boolean): PathCheck | null {
-  const [result, setResult] = useState<PathCheck | null>(null);
+type PathCheckResult = PathCheck & { root: string | null };
+
+/** Mirrors what Start will do, re-checked whenever the path, run state or setup outcome changes, so finishing setup clears the warning without a restart. */
+function useRunnerPathCheck(runnerPath: string | null, running: boolean, setupStatus: string): PathCheckResult | null {
+  const [result, setResult] = useState<PathCheckResult | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -147,7 +176,7 @@ function useRunnerPathCheck(runnerPath: string | null, running: boolean): PathCh
     return () => {
       cancelled = true;
     };
-  }, [runnerPath, running]);
+  }, [runnerPath, running, setupStatus]);
 
   return result;
 }
