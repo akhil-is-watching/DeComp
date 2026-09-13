@@ -99,9 +99,9 @@ export function GoLive({ onDone }: { onDone: () => void }) {
         <div style={{ display: "flex", gap: 11 }}>
           <IconAlert size={15} style={{ color: "var(--viz-warn)", flexShrink: 0, marginTop: 2 }} />
           <span style={{ fontSize: 13, color: "var(--muted-bright)", lineHeight: 1.7 }}>
-            Listing advertises an endpoint agents will send real jobs to. This app doesn&apos;t run
-            the job server yet — until something is answering at that address, agents will try you,
-            fail, and route to another node.
+            Listing advertises an endpoint agents will send real jobs to. Publishing here doesn&apos;t
+            start the runner — until it&apos;s started from the Engine tab, agents will try you, fail,
+            and route to another node.
           </span>
         </div>
       </Card>

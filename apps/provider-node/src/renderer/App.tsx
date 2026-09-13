@@ -2,7 +2,7 @@ import { useState } from "react";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { DashboardBackdrop, WelcomeBackdrop } from "./components/Backdrop";
 import { TitleBar } from "./components/TitleBar";
-import { IconCoins, IconGauge, IconLayers, IconSliders } from "./components/icons";
+import { IconCoins, IconCpu, IconGauge, IconLayers, IconSliders } from "./components/icons";
 import type { Segment } from "./components/Segmented";
 import { SigningBridge } from "./signing-bridge";
 import { useAccountProvisioning } from "./hooks/useAccountProvisioning";
@@ -11,16 +11,18 @@ import { Login } from "./screens/Login";
 import { SetupFailed, Splash } from "./screens/Splash";
 import { Onboarding } from "./screens/Onboarding";
 import { Overview } from "./screens/Overview";
+import { Engine } from "./screens/Engine";
 import { Jobs } from "./screens/Jobs";
 import { Earnings } from "./screens/Earnings";
 import { SettingsScreen } from "./screens/Settings";
 import { GoLive } from "./screens/GoLive";
 
-export type TabId = "overview" | "jobs" | "earnings" | "settings";
+export type TabId = "overview" | "engine" | "jobs" | "earnings" | "settings";
 export type View = TabId | "go-live";
 
 const TABS: readonly Segment<TabId>[] = [
   { id: "overview", label: "Overview", icon: <IconGauge size={13} /> },
+  { id: "engine", label: "Engine", icon: <IconCpu size={13} /> },
   { id: "jobs", label: "Jobs", icon: <IconLayers size={13} /> },
   { id: "earnings", label: "Earnings", icon: <IconCoins size={13} /> },
   { id: "settings", label: "Settings", icon: <IconSliders size={13} /> },
@@ -86,6 +88,7 @@ export function App() {
           <div key={view} className="rise" style={{ padding: "26px 28px 40px", maxWidth: 1180, margin: "0 auto" }}>
             {view === "overview" && <Overview onOpenTab={setView} onGoLive={() => setView("go-live")} />}
             {view === "go-live" && <GoLive onDone={() => setView("overview")} />}
+            {view === "engine" && <Engine onOpenTab={setView} />}
             {view === "jobs" && <Jobs onOpenTab={setView} />}
             {view === "earnings" && <Earnings onOpenTab={setView} />}
             {view === "settings" && <SettingsScreen />}

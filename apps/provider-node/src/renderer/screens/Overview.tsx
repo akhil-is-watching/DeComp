@@ -5,6 +5,7 @@
  */
 import { useMemo } from "react";
 import { HBAR_ASSET } from "@decomp/hedera-x402";
+import type { NodeRunState } from "../../main/node-supervisor";
 import { Badge } from "../components/Badge";
 import { BarChart, type BarDatum } from "../components/BarChart";
 import { Card, DetailRow, SectionTitle } from "../components/Surface";
@@ -13,7 +14,7 @@ import { EmptyState } from "../components/EmptyState";
 import { ExternalLink } from "../components/ExternalLink";
 import { Stat } from "../components/Stat";
 import { JobRow } from "../components/JobRow";
-import { NodeStatus, ServingStatus } from "../components/NodeStatus";
+import { NodeStatus } from "../components/NodeStatus";
 import { Skeleton } from "../components/Skeleton";
 import { IconBolt, IconCpu, IconLayers, IconWallet } from "../components/icons";
 import { useAppData } from "../state/AppData";
@@ -24,7 +25,7 @@ import { byJobType, countInWindow, dailyTotals, marketPosition, summarize, windo
 
 const TREND_DAYS = 14;
 
-export function Overview({ onOpenTab, onGoLive }: { onOpenTab: (tab: "jobs" | "earnings" | "settings") => void; onGoLive: () => void }) {
+export function Overview({ onOpenTab, onGoLive }: { onOpenTab: (tab: "engine" | "jobs" | "earnings" | "settings") => void; onGoLive: () => void }) {
   const { settings, balance, audits, registry, initialLoading } = useAppData();
   const now = useNow(30_000);
   const node = useNodeRun();
@@ -52,8 +53,9 @@ export function Overview({ onOpenTab, onGoLive }: { onOpenTab: (tab: "jobs" | "e
 
       <NodeStatus listing={market.listing} competitors={market.competitors} onGoLive={onGoLive} />
 
-      {/* Listed is not the same as serving; both have to be true before a job can land. */}
-      {market.listing && <ServingStatus run={node.state} busy={node.busy} onStart={() => void node.start()} onStop={() => void node.stop()} />}
+      {/* Listed is not the same as serving; both have to be true before a job can land. Full
+          start/stop control and logs live on the Engine tab — this is just enough to notice. */}
+      {market.listing && <ServingSummary run={node.state} onOpenEngine={() => onOpenTab("engine")} />}
 
       {/* --- hero: the one number this app exists to report, and its shape over time --- */}
       <Card padding={0} style={{ overflow: "hidden" }}>
@@ -223,6 +225,30 @@ export function Overview({ onOpenTab, onGoLive }: { onOpenTab: (tab: "jobs" | "e
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** A one-line pointer to the Engine tab, not a control surface — Start/Stop and logs live there. */
+function ServingSummary({ run, onOpenEngine }: { run: NodeRunState; onOpenEngine: () => void }) {
+  const serving = run.provider === "ready";
+  const tone = serving ? "good" : run.running ? "warn" : "neutral";
+  const label = serving ? "Answering jobs" : run.running ? "Starting up…" : "Not answering jobs";
+  return (
+    <div className="card">
+      <button className="row-button" onClick={onOpenEngine} style={{ padding: "12px 20px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <Badge tone={tone} dot pulse={run.running && !serving}>
+            {label}
+          </Badge>
+          <span style={{ fontSize: 12.5, color: "var(--muted)", flex: 1 }}>
+            {serving ? "the runner and provider are up" : "open the Engine tab to start the runner"}
+          </span>
+          <span className="link" style={{ fontSize: 12.5 }}>
+            Engine →
+          </span>
+        </div>
+      </button>
     </div>
   );
 }
