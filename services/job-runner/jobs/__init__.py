@@ -48,6 +48,14 @@ def _validate_mandelbrot(params: dict[str, Any]) -> dict[str, Any]:
     return {"width": width, "height": height, "max_iter": max_iter, "center_x": center_x, "center_y": center_y, "span": span}
 
 
+def _validate_imagegen(params: dict[str, Any]) -> dict[str, Any]:
+    width = int(params.get("width", 512))
+    height = int(params.get("height", width))
+    if not (64 <= width <= 4096 and 64 <= height <= 4096):
+        raise ValueError("width and height must be between 64 and 4096")
+    return {"width": width, "height": height, "seed": int(params.get("seed", 0))}
+
+
 MENU: dict[str, JobSpec] = {
     "benchmark": JobSpec(
         module="jobs.benchmark",
@@ -58,5 +66,10 @@ MENU: dict[str, JobSpec] = {
         module="jobs.mandelbrot",
         validate=_validate_mandelbrot,
         description="Mandelbrot render on the GPU with MLX, returned as a PNG",
+    ),
+    "imagegen": JobSpec(
+        module="jobs.imagegen",
+        validate=_validate_imagegen,
+        description="Seeded plasma-art image render on the GPU with MLX, returned as a PNG asset",
     ),
 }
