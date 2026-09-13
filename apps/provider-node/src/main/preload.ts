@@ -1,6 +1,8 @@
 /** The only bridge between the isolated renderer and Node/Electron APIs. Keep this surface tiny. */
 import { contextBridge, ipcRenderer } from "electron";
 import type { AuditEntry } from "@decomp/hcs-registry";
+import type { ProvisionResult } from "./account-provisioning";
+import type { EnvConfig } from "./env-config";
 import type { BalanceSnapshot } from "./mirror-reads";
 import type { Settings } from "./settings-store";
 
@@ -34,6 +36,9 @@ const api = {
     ipcRenderer.invoke("decomp:get-balance", accountId, computeTokenId),
   getProviderAudits: (auditTopicId: string, accountId: string): Promise<AuditEntry[]> =>
     ipcRenderer.invoke("decomp:get-provider-audits", auditTopicId, accountId),
+  getEnvConfig: (): Promise<EnvConfig> => ipcRenderer.invoke("decomp:get-env-config"),
+  provisionAccount: (address: string, associateTokenIds: string[]): Promise<ProvisionResult> =>
+    ipcRenderer.invoke("decomp:provision-account", address, associateTokenIds),
 };
 
 contextBridge.exposeInMainWorld("decomp", api);

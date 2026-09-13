@@ -10,6 +10,8 @@ export type Settings = {
   registryTopicId: string | null;
   auditTopicId: string | null;
   computeTokenId: string | null;
+  /** Tokens a brand-new account gets associated with on provisioning (see account-provisioning.ts). */
+  associateTokenIds: string[];
   bridgeUrl: string | null;
   providerName: string;
   runnerPath: string | null;
@@ -22,7 +24,8 @@ const DEFAULTS: Settings = {
   registryTopicId: null,
   auditTopicId: null,
   computeTokenId: null,
-  bridgeUrl: null,
+  associateTokenIds: [],
+  bridgeUrl: "https://bridge.decomp.cloud",
   providerName: "PROVIDER_1",
   runnerPath: null,
 };

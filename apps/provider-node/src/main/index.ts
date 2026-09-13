@@ -1,27 +1,18 @@
 /**
  * Provider Node's main process. Electron's main process is Node.js, not Bun — no Bun.serve,
  * bun:sqlite, etc. here, even though the rest of this monorepo prefers Bun; see the plan doc.
- *
- * Right now this only boots the window and hands the renderer its one public config value
- * (PRIVY_APP_ID). Everything else — provider process management, the embedded-wallet signing
- * bridge, mirror/HCS reads — lands in later steps of the build; see docs/BUILD_PLAN equivalent
- * (the plan file this app was built from).
  */
 import { app, BrowserWindow, ipcMain } from "electron";
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { getRootEnvValue, loadRootEnvIntoProcess } from "./env-config";
+import { registerAccountProvisioningIpc } from "./ipc/account-provisioning-ipc";
+import { registerEnvConfigIpc } from "./ipc/env-config-ipc";
 import { registerMirrorIpc } from "./ipc/mirror-ipc";
 import { registerSettingsIpc } from "./ipc/settings-ipc";
 
-/** The monorepo root .env — Electron's main process gets none of Bun's automatic .env loading. */
-function loadRootEnv(key: string): string | undefined {
-  try {
-    const text = readFileSync(join(__dirname, "../../../../.env"), "utf8");
-    return text.match(new RegExp(`^${key}=(.*)$`, "m"))?.[1]?.trim();
-  } catch {
-    return undefined;
-  }
-}
+// Needed before anything below touches @decomp/privy-hedera (account-provisioning.ts's OPERATOR
+// payer) — Electron's main process gets none of Bun's automatic .env loading.
+loadRootEnvIntoProcess();
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -45,9 +36,11 @@ function createWindow(): void {
   }
 }
 
-ipcMain.handle("decomp:get-privy-app-id", () => loadRootEnv("PRIVY_APP_ID"));
+ipcMain.handle("decomp:get-privy-app-id", () => getRootEnvValue("PRIVY_APP_ID"));
 registerSettingsIpc();
 registerMirrorIpc();
+registerEnvConfigIpc();
+registerAccountProvisioningIpc();
 
 app.whenReady().then(() => {
   createWindow();

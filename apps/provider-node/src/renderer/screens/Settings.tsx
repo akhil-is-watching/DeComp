@@ -65,7 +65,7 @@ export function SettingsScreen() {
       )}
 
       <Card style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <Field label="Hedera account id">
+        <Field label="Hedera account id (created automatically on first login)">
           <input style={FIELD_STYLE} value={draft.accountId ?? ""} onChange={e => update("accountId", e.target.value || null)} placeholder="0.0.xxxxxxx" />
         </Field>
         <Field label="Provider name">
@@ -85,6 +85,19 @@ export function SettingsScreen() {
         </Field>
         <Field label="Compute token id (optional)">
           <input style={FIELD_STYLE} value={draft.computeTokenId ?? ""} onChange={e => update("computeTokenId", e.target.value || null)} placeholder="0.0.xxxxxxx" />
+        </Field>
+        <Field label="Also associate on provisioning (comma-separated, optional)">
+          <input
+            style={FIELD_STYLE}
+            value={draft.associateTokenIds.join(", ")}
+            onChange={e =>
+              update(
+                "associateTokenIds",
+                e.target.value.split(",").map(s => s.trim()).filter(Boolean),
+              )
+            }
+            placeholder="0.0.429274"
+          />
         </Field>
         <Field label="Bridge URL (optional — leave empty to expose this machine directly)">
           <input style={FIELD_STYLE} value={draft.bridgeUrl ?? ""} onChange={e => update("bridgeUrl", e.target.value || null)} placeholder="https://…" />

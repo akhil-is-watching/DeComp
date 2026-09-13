@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { GlowBackground } from "./components/GlowBackground";
 import { DotGridBackground } from "./components/DotGridBackground";
 import { SigningBridge } from "./signing-bridge";
+import { useSettings } from "./hooks/useSettings";
+import { useAccountProvisioning } from "./hooks/useAccountProvisioning";
 import { Login } from "./screens/Login";
 import { Balance } from "./screens/Balance";
 import { JobHistory } from "./screens/JobHistory";
@@ -18,10 +20,20 @@ const TABS = [
 
 export function App() {
   const { ready, authenticated, logout, user } = usePrivy();
+  const { wallets } = useWallets();
+  const { settings, save } = useSettings();
+  const embeddedWallet = wallets.find(w => w.walletClientType === "privy");
+  const provisioning = useAccountProvisioning(settings, save, embeddedWallet);
   const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("balance");
 
-  if (!ready) return <Centered>loading…</Centered>;
+  if (!ready || !settings) return <Centered>loading…</Centered>;
   if (!authenticated) return <Login />;
+  if (!embeddedWallet || provisioning.status === "provisioning") {
+    return <Centered>setting up your Hedera account — this only happens once…</Centered>;
+  }
+  if (provisioning.status === "error") {
+    return <Centered>could not set up your account: {provisioning.error}</Centered>;
+  }
 
   const Active = TABS.find(t => t.id === tab)!.Component;
 
