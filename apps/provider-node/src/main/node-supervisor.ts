@@ -72,18 +72,55 @@ function record(name: ProcessName, line: string): void {
   onChange?.();
 }
 
+/** A checkout root actually has the provider's source next to it — the one thing every layout below shares. */
+function isRepoRoot(candidate: string): boolean {
+  return existsSync(join(candidate, "apps/provider/src/index.ts"));
+}
+
 /**
  * Where the monorepo is, as seen from the app. In development that's four levels up from out/main;
  * a packaged build has no monorepo around it, so the user has to point at a checkout in Settings.
+ *
+ * The Settings field is labelled "GPU runner checkout path" — reasonably read either as "the path
+ * to services/job-runner" (what the placeholder shows) or "the checkout, for the GPU runner" (the
+ * repo root itself). Rather than fail a path that's merely pointed one level off from what was
+ * intended, try every layout a saved value could plausibly mean.
  */
 function repoRoot(runnerPath: string | null): string | null {
-  if (runnerPath) {
-    // Settings stores the runner directory (…/services/job-runner); the repo is two levels above.
-    const candidate = join(runnerPath, "..", "..");
-    if (existsSync(join(candidate, "apps/provider/src/index.ts"))) return candidate;
+  const trimmed = runnerPath?.trim().replace(/\/+$/, "") || null;
+  if (trimmed) {
+    const candidates = [
+      trimmed, // they pointed straight at the repo root
+      join(trimmed, ".."), // …/services
+      join(trimmed, "..", ".."), // …/services/job-runner (what the placeholder asks for)
+    ];
+    const found = candidates.find(isRepoRoot);
+    if (found) return found;
   }
   const devRoot = join(__dirname, "../../../..");
-  return existsSync(join(devRoot, "apps/provider/src/index.ts")) ? devRoot : null;
+  return isRepoRoot(devRoot) ? devRoot : null;
+}
+
+export type RunnerPathStatus = { ok: boolean; root: string | null; pythonReady: boolean; message: string };
+
+/** What Settings shows next to the field, and what Engine checks before offering Start — same logic startNode uses, so it never disagrees with what actually happens on Start. */
+export function checkRunnerPath(runnerPath: string | null): RunnerPathStatus {
+  const root = repoRoot(runnerPath);
+  if (!root) {
+    return {
+      ok: false,
+      root: null,
+      pythonReady: false,
+      message: runnerPath ? `no DeComp checkout found at or above "${runnerPath.trim()}"` : "not set — defaulting to this dev checkout, if any",
+    };
+  }
+  const pythonReady = existsSync(join(root, "services/job-runner/.venv/bin/python"));
+  return {
+    ok: pythonReady,
+    root,
+    pythonReady,
+    message: pythonReady ? `found at ${root}` : `found the checkout at ${root}, but the runner isn't set up — run \`bun run setup:runner\` there`,
+  };
 }
 
 export async function startNode(win: BrowserWindow, settings: Settings): Promise<void> {
@@ -91,7 +128,13 @@ export async function startNode(win: BrowserWindow, settings: Settings): Promise
   if (!settings.accountId) throw new Error("this node has no Hedera account yet");
 
   const root = repoRoot(settings.runnerPath);
-  if (!root) throw new Error("can't find the DeComp checkout — set the GPU runner path in Settings");
+  if (!root) {
+    throw new Error(
+      settings.runnerPath
+        ? `no DeComp checkout found at or above "${settings.runnerPath}" — it should point at the repo checkout, or its services/job-runner folder`
+        : "can't find the DeComp checkout — set the GPU runner path in Settings",
+    );
+  }
 
   const python = join(root, "services/job-runner/.venv/bin/python");
   if (!existsSync(python)) {

@@ -14,10 +14,11 @@ import { Badge } from "../components/Badge";
 import { Button } from "../components/Button";
 import { Copyable } from "../components/Copyable";
 import { ExternalLink } from "../components/ExternalLink";
-import { IconAlert, IconBroadcast, IconCpu, IconUser } from "../components/icons";
+import { IconAlert, IconBroadcast, IconCheck, IconCpu, IconUser } from "../components/icons";
 import { useAppData } from "../state/AppData";
 import { shortAddress } from "../lib/format";
 import type { Settings as SettingsType } from "../../main/settings-store";
+import type { RunnerPathStatus } from "../../main/node-supervisor";
 
 /** The only fields this screen writes. Anything absent here is read-only by definition. */
 const EDITABLE: Partial<Record<keyof SettingsType, string>> = {
@@ -46,6 +47,7 @@ export function SettingsScreen() {
 
   const embeddedWallet = wallets.find(w => w.walletClientType === "privy");
   const dirty = useMemo(() => (draft && settings ? changedKeys(settings, draft) : []), [settings, draft]);
+  const runnerPathCheck = useRunnerPathCheck(draft?.runnerPath ?? null);
 
   if (!draft || !settings) return null;
 
@@ -96,8 +98,14 @@ export function SettingsScreen() {
         <Field label="Bridge URL" hint="leave empty to expose this machine directly">
           <input className="field selectable mono" value={draft.bridgeUrl ?? ""} onChange={e => update("bridgeUrl", e.target.value || null)} placeholder="https://…" />
         </Field>
-        <Field label="GPU runner checkout path">
+        <Field label="GPU runner checkout path" hint="the repo checkout, or its services/job-runner folder">
           <input className="field selectable mono" value={draft.runnerPath ?? ""} onChange={e => update("runnerPath", e.target.value || null)} placeholder="/path/to/DeComp/services/job-runner" />
+          {runnerPathCheck && draft.runnerPath && (
+            <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: runnerPathCheck.ok ? "var(--viz-good)" : "var(--viz-warn)" }}>
+              {runnerPathCheck.ok ? <IconCheck size={12} /> : <IconAlert size={12} />}
+              {runnerPathCheck.message}
+            </span>
+          )}
         </Field>
       </Group>
 
@@ -286,6 +294,26 @@ function ReadOnly({ label, value, empty, hint }: { label: string; value: string 
       </div>
     </div>
   );
+}
+
+/** Live-checks the draft path as the user types, so a bad value is caught here instead of at Start. */
+function useRunnerPathCheck(runnerPath: string | null): RunnerPathStatus | null {
+  const [status, setStatus] = useState<RunnerPathStatus | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void window.decomp.checkRunnerPath(runnerPath).then(result => {
+        if (!cancelled) setStatus(result);
+      });
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [runnerPath]);
+
+  return status;
 }
 
 function changedKeys(saved: SettingsType, draft: SettingsType): string[] {

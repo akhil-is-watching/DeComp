@@ -4,7 +4,7 @@ import type { AuditEntry, RegistryEntry } from "@decomp/hcs-registry";
 import type { HederaNetwork } from "@decomp/hedera-x402";
 import type { ProvisionResult } from "./account-provisioning";
 import type { RegistrationRequest, RegistrationResult } from "./provider-registration";
-import type { NodeRunState, ProcessName } from "./node-supervisor";
+import type { NodeRunState, ProcessName, RunnerPathStatus } from "./node-supervisor";
 import type { EnvConfig } from "./env-config";
 import type { BalanceSnapshot } from "./mirror-reads";
 import type { Settings } from "./settings-store";
@@ -59,6 +59,8 @@ const api = {
   stopNode: (): Promise<void> => ipcRenderer.invoke("decomp:stop-node"),
   getNodeState: (): Promise<NodeRunState> => ipcRenderer.invoke("decomp:node-state"),
   getNodeLog: (): Promise<{ name: ProcessName; line: string; at: number }[]> => ipcRenderer.invoke("decomp:node-log"),
+  /** Same check Start runs, exposed so Settings/Engine can point out a bad path before the user tries. */
+  checkRunnerPath: (runnerPath: string | null): Promise<RunnerPathStatus> => ipcRenderer.invoke("decomp:check-runner-path", runnerPath),
   onNodeChanged: (listener: (state: NodeRunState) => void): (() => void) => {
     const handler = (_event: unknown, state: NodeRunState) => listener(state);
     ipcRenderer.on("decomp:node-changed", handler);
