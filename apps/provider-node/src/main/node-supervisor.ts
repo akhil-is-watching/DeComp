@@ -197,17 +197,26 @@ function findBinary(name: string): string | null {
  */
 async function listedOffers(settings: Settings): Promise<{ offers: string; tickSeconds: number } | null> {
   if (!settings.registryTopicId || !settings.accountId) return null;
+  let registry: Awaited<ReturnType<typeof fetchRegistry>>;
   try {
-    const registry = await fetchRegistry(settings.registryTopicId, settings.network);
-    const listing = registry.find(entry => entry.hederaAccount === settings.accountId);
-    if (!listing || listing.jobTypes.length === 0) return null;
-    return {
-      offers: listing.jobTypes.map(job => `${job.name}:${job.pricePerSecTinybars}`).join(","),
-      tickSeconds: listing.jobTypes[0]!.tickSeconds,
-    };
-  } catch {
-    return null; // an unreadable registry shouldn't block starting; the defaults still serve
+    registry = await fetchRegistry(settings.registryTopicId, settings.network);
+  } catch (error) {
+    // Falling back to the defaults here would bring back exactly the bug above: a listed node
+    // quietly charging a different price and refusing every job. Better not to start at all.
+    throw new Error(
+      `couldn't read this node's registry listing, so it can't be sure to charge the listed price — try again ` +
+        `(${error instanceof Error ? error.message : String(error)})`,
+    );
   }
+  const listing = registry.find(entry => entry.hederaAccount === settings.accountId);
+  if (!listing || listing.jobTypes.length === 0) {
+    // Not listed, so no agent routes here by a registry price; the defaults can't contradict anything.
+    record("provider", "no registry listing for this account yet — serving the default offers");
+    return null;
+  }
+  const offers = listing.jobTypes.map(job => `${job.name}:${job.pricePerSecTinybars}`).join(",");
+  record("provider", `serving the listed offers: ${offers} (${listing.jobTypes[0]!.tickSeconds}s ticks)`);
+  return { offers, tickSeconds: listing.jobTypes[0]!.tickSeconds };
 }
 
 export type RunnerSetupResult = { ok: boolean; message: string };
