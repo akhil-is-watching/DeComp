@@ -2,8 +2,10 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { PrivyProvider } from "@privy-io/react-auth";
 import { App } from "./App";
+import { AppDataProvider } from "./state/AppData";
 import "./theme/fonts.css";
 import "./theme/tokens.css";
+import "./theme/components.css";
 
 async function main() {
   const appId = await window.decomp.getPrivyAppId();
@@ -22,7 +24,9 @@ async function main() {
           appearance: { theme: "dark", accentColor: "#c2f24a" },
         }}
       >
-        <App />
+        <AppDataProvider>
+          <App />
+        </AppDataProvider>
       </PrivyProvider>
     </StrictMode>,
   );

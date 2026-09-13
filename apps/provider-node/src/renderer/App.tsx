@@ -1,117 +1,93 @@
 import { useState } from "react";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
-import { GlowBackground } from "./components/GlowBackground";
-import { DotGridBackground } from "./components/DotGridBackground";
+import { DashboardBackdrop, WelcomeBackdrop } from "./components/Backdrop";
+import { TitleBar } from "./components/TitleBar";
+import { IconCoins, IconGauge, IconLayers, IconSliders } from "./components/icons";
+import type { Segment } from "./components/Segmented";
 import { SigningBridge } from "./signing-bridge";
-import { useSettings } from "./hooks/useSettings";
 import { useAccountProvisioning } from "./hooks/useAccountProvisioning";
+import { useAppData } from "./state/AppData";
 import { Login } from "./screens/Login";
-import { Balance } from "./screens/Balance";
-import { JobHistory } from "./screens/JobHistory";
-import { RewardHistory } from "./screens/RewardHistory";
+import { SetupFailed, Splash } from "./screens/Splash";
+import { Onboarding } from "./screens/Onboarding";
+import { Overview } from "./screens/Overview";
+import { Jobs } from "./screens/Jobs";
+import { Earnings } from "./screens/Earnings";
 import { SettingsScreen } from "./screens/Settings";
 
-const TABS = [
-  { id: "balance", label: "balance", Component: Balance },
-  { id: "jobs", label: "job history", Component: JobHistory },
-  { id: "rewards", label: "reward history", Component: RewardHistory },
-  { id: "settings", label: "settings", Component: SettingsScreen },
-] as const;
+export type TabId = "overview" | "jobs" | "earnings" | "settings";
+
+const TABS: readonly Segment<TabId>[] = [
+  { id: "overview", label: "Overview", icon: <IconGauge size={13} /> },
+  { id: "jobs", label: "Jobs", icon: <IconLayers size={13} /> },
+  { id: "earnings", label: "Earnings", icon: <IconCoins size={13} /> },
+  { id: "settings", label: "Settings", icon: <IconSliders size={13} /> },
+];
 
 export function App() {
-  const { ready, authenticated, logout, user } = usePrivy();
+  const { ready, authenticated, user } = usePrivy();
   const { wallets } = useWallets();
-  const { settings, save } = useSettings();
+  const { settings, save, refresh, refreshedAt, refreshing } = useAppData();
   const embeddedWallet = wallets.find(w => w.walletClientType === "privy");
   const provisioning = useAccountProvisioning(settings, save, embeddedWallet);
-  const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("balance");
+  const [tab, setTab] = useState<TabId>("overview");
 
-  if (!ready || !settings) return <Centered>loading…</Centered>;
-  if (!authenticated) return <Login />;
-
-  // Mounted unconditionally from here on, before the provisioning gate below: provisioning itself
-  // asks the renderer to sign (via this component's IPC handler registration), so it has to be
-  // live *before* that request can ever be answered, not only once the dashboard renders.
-  if (!embeddedWallet || provisioning.status === "provisioning") {
-    return (
-      <>
-        <SigningBridge />
-        <Centered>setting up your Hedera account — this only happens once…</Centered>
-      </>
-    );
-  }
-  if (provisioning.status === "error") {
-    return (
-      <>
-        <SigningBridge />
-        <Centered>could not set up your account: {provisioning.error}</Centered>
-      </>
-    );
-  }
-
-  const Active = TABS.find(t => t.id === tab)!.Component;
+  const signedIn =
+    ready &&
+    authenticated &&
+    settings !== null &&
+    !!settings.onboardedAt &&
+    provisioning.status !== "provisioning" &&
+    provisioning.status !== "error" &&
+    !!embeddedWallet;
 
   return (
-    <div style={{ position: "relative", minHeight: "100vh" }}>
-      <GlowBackground />
-      <DotGridBackground />
-      <SigningBridge />
-      <div style={{ position: "relative", zIndex: 1, display: "flex", minHeight: "100vh" }}>
-        <nav
-          style={{
-            width: 200,
-            flexShrink: 0,
-            borderRight: "1px solid var(--line)",
-            padding: "28px 20px",
-            display: "flex",
-            flexDirection: "column",
-            gap: 4,
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 28 }}>
-            <span className="font-serif" style={{ fontSize: 20 }}>
-              decomp
-            </span>
-            <span style={{ width: 6, height: 6, borderRadius: 999, background: "var(--accent)", animation: "decomp-breathe 3.4s ease-in-out infinite" }} />
-          </div>
-          {TABS.map(t => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              style={{
-                textAlign: "left",
-                border: "none",
-                background: tab === t.id ? "color-mix(in srgb, var(--accent) 12%, transparent)" : "transparent",
-                color: tab === t.id ? "var(--accent)" : "var(--muted-bright)",
-                borderRadius: 10,
-                padding: "9px 12px",
-                fontFamily: "inherit",
-                fontSize: 12,
-                letterSpacing: "0.06em",
-                textTransform: "uppercase",
-                cursor: "pointer",
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-          <div style={{ flex: 1 }} />
-          <div style={{ color: "var(--muted)", fontSize: 11, marginBottom: 8, wordBreak: "break-all" }}>{user?.email?.address ?? user?.id}</div>
-          <button
-            onClick={logout}
-            style={{ textAlign: "left", border: "none", background: "transparent", color: "var(--muted)", fontFamily: "inherit", fontSize: 11, cursor: "pointer", padding: 0 }}
-          >
-            log out
-          </button>
-        </nav>
-        <main style={{ flex: 1, padding: 32, overflowY: "auto" }}>
-          <Active />
-        </main>
-      </div>
+    <div style={{ position: "relative", height: "100vh", display: "flex", flexDirection: "column" }}>
+      {signedIn ? <DashboardBackdrop /> : <WelcomeBackdrop />}
+      {authenticated && <SigningBridge />}
+      {renderStage()}
     </div>
   );
-}
 
-function Centered({ children }: { children: React.ReactNode }) {
-  return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>{children}</div>;
+  function renderStage() {
+    if (!ready || !settings) return <Splash />;
+    if (!authenticated) return <Login />;
+
+    // The signing bridge above is mounted before this gate on purpose: provisioning asks the
+    // renderer to sign, so it has to be live before the request can be answered, not only once
+    // the dashboard renders.
+    if (!embeddedWallet || provisioning.status === "provisioning") {
+      return <Splash caption="Setting up your Hedera account. This happens once — your wallet's own key becomes the account key." />;
+    }
+    if (provisioning.status === "error") {
+      return <SetupFailed error={provisioning.error} onRetry={() => window.location.reload()} />;
+    }
+    // The account exists by here, so onboarding can show it while asking for the one thing only
+    // the user can supply.
+    if (!settings.onboardedAt) return <Onboarding />;
+
+    return (
+      <>
+        <TitleBar
+          segments={TABS}
+          tab={tab}
+          onTab={setTab}
+          network={settings.network}
+          onNetworkChange={network => void save({ network })}
+          refreshedAt={refreshedAt}
+          refreshing={refreshing}
+          onRefresh={refresh}
+          accountLabel={user?.email?.address ?? user?.id ?? "—"}
+        />
+        <main className="scroll-area" style={{ flex: 1, position: "relative", zIndex: 1 }}>
+          <div key={tab} className="rise" style={{ padding: "26px 28px 40px", maxWidth: 1180, margin: "0 auto" }}>
+            {tab === "overview" && <Overview onOpenTab={setTab} />}
+            {tab === "jobs" && <Jobs onOpenTab={setTab} />}
+            {tab === "earnings" && <Earnings onOpenTab={setTab} />}
+            {tab === "settings" && <SettingsScreen />}
+          </div>
+        </main>
+      </>
+    );
+  }
 }

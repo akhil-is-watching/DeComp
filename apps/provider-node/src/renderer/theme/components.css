@@ -1,0 +1,269 @@
+/**
+ * Classes for the parts that need real pseudo-state (:hover, :focus-visible, ::after). Layout and
+ * one-off styling stay as inline style objects, the way the rest of this renderer is written.
+ */
+
+/* --- surfaces ------------------------------------------------------------- */
+.card {
+  border-radius: var(--r-lg);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  backdrop-filter: blur(14px);
+  box-shadow: var(--shadow-card);
+}
+
+.card-hover {
+  transition: border-color 160ms var(--ease), background 160ms var(--ease), transform 160ms var(--ease);
+}
+
+.card-hover:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-3);
+}
+
+/* --- toolbar -------------------------------------------------------------- */
+.titlebar {
+  height: var(--titlebar-h);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 16px 0 92px; /* leaves the traffic lights their corner */
+  border-bottom: 1px solid var(--line);
+  background: var(--toolbar);
+  backdrop-filter: blur(30px) saturate(180%);
+  position: relative;
+  z-index: 3;
+}
+
+/* --- segmented control ---------------------------------------------------- */
+.segmented {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 11px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--line);
+}
+
+.segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 8px;
+  padding: 6px 13px;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+  cursor: default;
+  white-space: nowrap;
+  transition: color 140ms var(--ease), background 140ms var(--ease);
+}
+
+.segment:hover {
+  color: var(--muted-bright);
+  background: var(--surface-3);
+}
+
+.segment[aria-selected="true"] {
+  color: var(--text);
+  background: var(--surface-hover);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.22);
+}
+
+.segment[aria-selected="true"]:hover {
+  color: var(--text);
+}
+
+/* --- small controls ------------------------------------------------------- */
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 30px;
+  min-width: 30px;
+  padding: 0 9px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  cursor: default;
+  transition: color 140ms var(--ease), background 140ms var(--ease), border-color 140ms var(--ease);
+}
+
+.icon-button:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-3);
+  border-color: var(--line);
+}
+
+.icon-button:active:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.icon-button:disabled {
+  opacity: 0.4;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  background: transparent;
+  border-radius: 999px;
+  padding: 4px 11px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: default;
+  white-space: nowrap;
+  transition: color 140ms var(--ease), border-color 140ms var(--ease), background 140ms var(--ease);
+}
+
+button.chip:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
+button.chip[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  background: var(--accent-softer);
+}
+
+/* --- copyable value ------------------------------------------------------- */
+.copyable {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  padding: 2px 6px;
+  margin-left: -6px;
+  border-radius: 7px;
+  cursor: default;
+  max-width: 100%;
+  transition: background 140ms var(--ease), color 140ms var(--ease);
+}
+
+.copyable:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.copyable .copy-glyph {
+  opacity: 0;
+  flex-shrink: 0;
+  transition: opacity 140ms var(--ease);
+}
+
+.copyable:hover .copy-glyph,
+.copyable:focus-visible .copy-glyph {
+  opacity: 0.7;
+}
+
+/* --- links ---------------------------------------------------------------- */
+.link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: var(--muted-bright);
+  text-decoration: none;
+  cursor: default;
+  transition: color 140ms var(--ease);
+}
+
+.link:hover {
+  color: var(--accent);
+}
+
+/* --- rows / tables --------------------------------------------------------- */
+.row-button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  cursor: default;
+  transition: background 140ms var(--ease);
+}
+
+.row-button:hover {
+  background: var(--surface-3);
+}
+
+.divide > * + * {
+  border-top: 1px solid var(--line);
+}
+
+/* --- form fields ------------------------------------------------------------ */
+.field {
+  width: 100%;
+  padding: 9px 11px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--surface-sunken);
+  color: var(--text);
+  font-size: 13.5px;
+  transition: border-color 140ms var(--ease), background 140ms var(--ease);
+}
+
+.field:hover {
+  border-color: var(--line-strong);
+}
+
+.field:focus {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: var(--surface-2);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-softer);
+}
+
+.field[readonly] {
+  color: var(--muted-bright);
+}
+
+select.field {
+  appearance: none;
+  cursor: default;
+}
+
+/* --- chart ------------------------------------------------------------------ */
+.viz-bar {
+  transition: opacity 140ms var(--ease);
+  transform-origin: bottom;
+}
+
+.viz-plot:hover .viz-bar {
+  opacity: 0.45;
+}
+
+.viz-plot .viz-bar[data-active="true"],
+.viz-plot:hover .viz-bar[data-active="true"] {
+  opacity: 1;
+}
+
+/* --- skeleton --------------------------------------------------------------- */
+.skeleton {
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--surface-3) 25%, var(--surface-hover) 37%, var(--surface-3) 63%);
+  background-size: 280% 100%;
+  animation: decomp-shimmer 1.5s ease-in-out infinite;
+}
+
+/* Holds the previous render during a background refresh instead of flashing a skeleton. */
+.stale {
+  opacity: 0.55;
+  transition: opacity 200ms var(--ease);
+}

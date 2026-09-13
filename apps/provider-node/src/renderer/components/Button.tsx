@@ -17,7 +17,7 @@ export function Button({ variant = "primary", style, ...rest }: Props) {
         color: primary ? "var(--ink)" : "var(--text)",
         padding: "12px 22px",
         fontFamily: "inherit",
-        fontSize: 13,
+        fontSize: 14,
         fontWeight: 500,
         letterSpacing: "0.04em",
         cursor: rest.disabled ? "default" : "pointer",

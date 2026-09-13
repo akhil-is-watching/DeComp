@@ -13,8 +13,13 @@ export type Settings = {
   /** Tokens a brand-new account gets associated with on provisioning (see account-provisioning.ts). */
   associateTokenIds: string[];
   bridgeUrl: string | null;
+  /** What agents see this node listed as. The one thing onboarding asks for. */
   providerName: string;
   runnerPath: string | null;
+  /** Set when the user finishes onboarding; null means they never have. */
+  onboardedAt: string | null;
+  /** Last window frame, so the app reopens where it was left (see window-state.ts). */
+  windowBounds: { x: number; y: number; width: number; height: number } | null;
 };
 
 const DEFAULTS: Settings = {
@@ -26,8 +31,12 @@ const DEFAULTS: Settings = {
   computeTokenId: null,
   associateTokenIds: [],
   bridgeUrl: "https://bridge.decomp.cloud",
-  providerName: "PROVIDER_1",
+  // Empty, not "PROVIDER_1" — that was a fixed demo-role name, never a sensible default for a
+  // person. Onboarding asks for a real one before the dashboard opens.
+  providerName: "",
   runnerPath: null,
+  onboardedAt: null,
+  windowBounds: null,
 };
 
 function settingsPath(): string {

@@ -1,6 +1,7 @@
 /** The only bridge between the isolated renderer and Node/Electron APIs. Keep this surface tiny. */
 import { contextBridge, ipcRenderer } from "electron";
-import type { AuditEntry } from "@decomp/hcs-registry";
+import type { AuditEntry, RegistryEntry } from "@decomp/hcs-registry";
+import type { HederaNetwork } from "@decomp/hedera-x402";
 import type { ProvisionResult } from "./account-provisioning";
 import type { EnvConfig } from "./env-config";
 import type { BalanceSnapshot } from "./mirror-reads";
@@ -43,10 +44,14 @@ const api = {
   },
   getSettings: (): Promise<Settings> => ipcRenderer.invoke("decomp:get-settings"),
   saveSettings: (patch: Partial<Settings>): Promise<Settings> => ipcRenderer.invoke("decomp:save-settings", patch),
-  getBalance: (accountId: string, computeTokenId?: string): Promise<BalanceSnapshot> =>
-    ipcRenderer.invoke("decomp:get-balance", accountId, computeTokenId),
-  getProviderAudits: (auditTopicId: string, accountId: string): Promise<AuditEntry[]> =>
-    ipcRenderer.invoke("decomp:get-provider-audits", auditTopicId, accountId),
+  getBalance: (accountId: string, network: HederaNetwork, computeTokenId?: string): Promise<BalanceSnapshot> =>
+    ipcRenderer.invoke("decomp:get-balance", accountId, network, computeTokenId),
+  getProviderAudits: (auditTopicId: string, accountId: string, network: HederaNetwork): Promise<AuditEntry[]> =>
+    ipcRenderer.invoke("decomp:get-provider-audits", auditTopicId, accountId, network),
+  /** Every provider currently listed on the registry topic — this node's own listing included. */
+  getRegistry: (registryTopicId: string, network: HederaNetwork): Promise<RegistryEntry[]> =>
+    ipcRenderer.invoke("decomp:get-registry", registryTopicId, network),
+  openExternal: (url: string): Promise<void> => ipcRenderer.invoke("decomp:open-external", url),
   getEnvConfig: (): Promise<EnvConfig> => ipcRenderer.invoke("decomp:get-env-config"),
   provisionAccount: (address: string, associateTokenIds: string[]): Promise<ProvisionResult> =>
     ipcRenderer.invoke("decomp:provision-account", address, associateTokenIds),

@@ -2,20 +2,67 @@
  * Palette matches decomp-landing.vercel.app exactly (dark values are its real CSS custom
  * properties, fetched from the live site). Light mode has no counterpart there — derived here,
  * preserving the same accent and the same muted/line relationships, just inverted luminance.
+ *
+ * Everything below the brand block is app chrome: layered surfaces, a type scale, and the
+ * chart/status tokens the dashboard draws with. Chart colours are not eyeballed — see the
+ * `--viz-*` block for what each was validated against.
  */
 :root {
   --ink: #070907;
   --text: #e6ece2;
   --accent: #c2f24a;
   --accent-hover: #e2ffa8;
-  --line: #e2ecde1f;
-  --muted: #8b968a;
-  --muted-bright: #98a396;
-  --placeholder: #6d776c;
+  --line: #e2ecde24;
+  --muted: #9aa598;
+  --muted-bright: #c2cabe;
+  --placeholder: #7b857a;
 
   /* decorative glow blob tints, ported from the landing page's background */
   --glow-accent: rgba(194, 242, 74, 0.14);
   --glow-blue: rgba(110, 140, 255, 0.14);
+
+  /* --- type -------------------------------------------------------------- */
+  /* The UI runs on the system face — at dashboard density, mono set the whole interface at one
+     width, which is what made 13px text hard to scan. Mono is kept for what it is actually for:
+     ids, hashes and columns of figures (.tabular / .mono). */
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-display: "Instrument Serif", serif;
+
+  /* --- layered surfaces ------------------------------------------------- */
+  /* Opaque, not translucent: a card's contrast must not depend on what happens to sit behind it.
+     --surface-2 is the card ground every chart colour is validated against (#101210 resolved). */
+  --surface-1: #0c0e0c;
+  --surface-2: color-mix(in srgb, var(--text) 4%, var(--ink));
+  --surface-3: color-mix(in srgb, var(--text) 8%, var(--ink));
+  --surface-hover: color-mix(in srgb, var(--text) 12%, var(--ink));
+  --surface-sunken: color-mix(in srgb, var(--ink) 70%, var(--surface-2));
+  --toolbar: color-mix(in srgb, var(--ink) 86%, var(--text));
+  --line-strong: color-mix(in srgb, var(--text) 18%, transparent);
+  --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+  --accent-softer: color-mix(in srgb, var(--accent) 8%, transparent);
+
+  /* --- chart + status tokens -------------------------------------------- */
+  /* series-1: the brand hue stepped down one notch so a 24px fill doesn't glare
+     (11.1:1 on the card surface). Single-series charts only — a second series would
+     have to clear the CVD gate, and every two-value comparison here is a KPI pair. */
+  --viz-series-1: #a8d43c;
+  --viz-series-1-wash: color-mix(in srgb, #a8d43c 12%, transparent);
+  --viz-good: #3ecf8e;
+  --viz-warn: #e0a340;
+  --viz-crit: #f0736f;
+  --viz-grid: color-mix(in srgb, var(--text) 9%, transparent);
+  --viz-track: color-mix(in srgb, var(--text) 7%, transparent);
+
+  /* --- shape + motion ---------------------------------------------------- */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 20px;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -12px rgba(0, 0, 0, 0.5);
+  --shadow-pop: 0 12px 40px -12px rgba(0, 0, 0, 0.7), 0 0 0 1px var(--line);
+  --ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --titlebar-h: 52px;
 }
 
 @media (prefers-color-scheme: light) {
@@ -24,13 +71,30 @@
     --text: #0d120c;
     --accent: #c2f24a;
     --accent-hover: #9fd93a;
-    --line: #0d120c1f;
-    --muted: #5b665a;
-    --muted-bright: #3f4a3e;
+    --line: #0d120c24;
+    --muted: #56614f;
+    --muted-bright: #2c3529;
     --placeholder: #8a938a;
 
     --glow-accent: rgba(159, 217, 58, 0.12);
     --glow-blue: rgba(80, 110, 230, 0.1);
+
+    --surface-1: #ffffff;
+    --surface-sunken: color-mix(in srgb, var(--text) 5%, var(--ink));
+    --toolbar: color-mix(in srgb, #ffffff 82%, var(--ink));
+    --accent-soft: color-mix(in srgb, #658c0f 14%, transparent);
+    --accent-softer: color-mix(in srgb, #658c0f 8%, transparent);
+
+    /* Re-stepped for the light surface (#eff1ec): the brand lime sits at 1.15:1 there
+       and would vanish. These clear the 3:1 mark floor / 4.4:1+ for status text. */
+    --viz-series-1: #658c0f;
+    --viz-series-1-wash: color-mix(in srgb, #658c0f 14%, transparent);
+    --viz-good: #0d7d4f;
+    --viz-warn: #96660a;
+    --viz-crit: #c0392f;
+
+    --shadow-card: 0 1px 2px rgba(13, 18, 12, 0.06), 0 8px 24px -14px rgba(13, 18, 12, 0.18);
+    --shadow-pop: 0 12px 40px -14px rgba(13, 18, 12, 0.25), 0 0 0 1px var(--line);
   }
 }
 
@@ -48,14 +112,38 @@ body,
 body {
   background: var(--ink);
   color: var(--text);
-  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-family: var(--font-ui);
   font-size: 14px;
+  line-height: 1.5;
+  letter-spacing: 0;
   -webkit-font-smoothing: antialiased;
+  /* A desktop app is not a document: text selection is opt-in, per-element. */
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+  overflow: hidden;
 }
 
 .font-serif {
-  font-family: "Instrument Serif", serif;
+  font-family: var(--font-display);
   font-weight: 400;
+}
+
+/** Ids, hashes, addresses — anything read character by character. */
+.mono {
+  font-family: var(--font-mono);
+}
+
+/** Columns of figures: mono, equal-width digits. A big standalone figure keeps proportional ones. */
+.tabular {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.selectable {
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
 }
 
 a {
@@ -67,15 +155,80 @@ a {
   color: var(--ink);
 }
 
-@keyframes decomp-drift {
-  from {
-    background-position: 0 0;
-  }
-  to {
-    background-position: 340px 340px;
-  }
+/* --- window chrome ------------------------------------------------------- */
+.drag {
+  -webkit-app-region: drag;
 }
 
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/**
+ * Anything portalled outside #root — the Privy login dialog is — has to carve itself out of any
+ * draggable region it overlaps. The default `app-region: none` does NOT subtract from Electron's
+ * drag mask; only `no-drag` does, so without this a dialog sitting over a drag strip would take
+ * no clicks at all. Two levels deep because the portal root is usually a zero-size wrapper and it
+ * is the overlay inside it that actually has the area.
+ */
+body > *:not(#root):not(script),
+body > *:not(#root):not(script) > * {
+  -webkit-app-region: no-drag;
+}
+
+/* --- focus ---------------------------------------------------------------- */
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* --- scrollbars (overlay, macOS-ish) -------------------------------------- */
+.scroll-area {
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.scroll-area::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+
+.scroll-area::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text) 18%, transparent);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+.scroll-area::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text) 32%, transparent);
+  background-clip: content-box;
+}
+
+.scroll-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* --- inputs --------------------------------------------------------------- */
+input,
+select,
+textarea,
+button {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+input::placeholder {
+  color: var(--placeholder);
+}
+
+/* --- animations ----------------------------------------------------------- */
 @keyframes decomp-breathe {
   0%,
   100% {
@@ -88,3 +241,73 @@ a {
   }
 }
 
+@keyframes decomp-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes decomp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes decomp-shimmer {
+  from {
+    background-position: -140% 0;
+  }
+  to {
+    background-position: 240% 0;
+  }
+}
+
+@keyframes decomp-fade {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes decomp-sweep {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(360%);
+  }
+}
+
+@keyframes decomp-grow {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+/* No `both` fill on purpose: with it, content that never gets to run its animation — a
+   throttled or occluded window, a paint that lands before the timeline starts — stays stuck at
+   the keyframe's opacity 0. The element's own resting state must be the visible one. */
+.rise {
+  animation: decomp-rise 340ms var(--ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
