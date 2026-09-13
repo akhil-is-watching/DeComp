@@ -77,6 +77,27 @@ async function createWindow(): Promise<void> {
   });
   win.once("ready-to-show", () => win.show());
 
+  // Privy's Google login opens a popup (window.open) to auth.privy.io and expects to complete a
+  // postMessage handshake with this window once it's done — Electron denies all popups by default,
+  // so without this the button would silently do nothing. Only privy.io is allowed to pop up;
+  // everything else stays denied.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    const host = new URL(url).hostname;
+    return host === "privy.io" || host.endsWith(".privy.io") ? { action: "allow" } : { action: "deny" };
+  });
+  // Electron's default UA embeds "Electron/<version>", which Google's OAuth flags as a disallowed
+  // embedded webview and refuses to sign in from — even though this popup is a genuine, separate
+  // Chromium window fully capable of completing the postMessage handshake back to us. Stripping the
+  // app-name and Electron tokens leaves a plain Chrome UA Google accepts, without touching the main
+  // window's UA (session-wide overrides would affect every request the app makes).
+  win.webContents.on("did-create-window", popup => {
+    const chromeUa = win.webContents
+      .getUserAgent()
+      .replace(`${app.getName()}/${app.getVersion()} `, "")
+      .replace(`Electron/${process.versions.electron} `, "");
+    popup.webContents.setUserAgent(chromeUa);
+  });
+
   if (process.env.ELECTRON_RENDERER_URL) {
     win.loadURL(process.env.ELECTRON_RENDERER_URL);
     return;

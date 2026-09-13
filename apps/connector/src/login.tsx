@@ -63,7 +63,7 @@ function Login() {
 async function main() {
   const { privyAppId } = (await (await fetch("/connector-config")).json()) as { privyAppId: string };
   createRoot(document.getElementById("root")!).render(
-    <PrivyProvider appId={privyAppId} config={{ loginMethods: ["email"] }}>
+    <PrivyProvider appId={privyAppId} config={{ loginMethods: ["email", "google"] }}>
       <Login />
     </PrivyProvider>,
   );

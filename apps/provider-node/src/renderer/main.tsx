@@ -17,7 +17,7 @@ async function main() {
       <PrivyProvider
         appId={appId}
         config={{
-          loginMethods: ["email"],
+          loginMethods: ["email", "google"],
           embeddedWallets: { ethereum: { createOnLogin: "users-without-wallets" } },
           appearance: { theme: "dark", accentColor: "#c2f24a" },
         }}
