@@ -66,3 +66,25 @@ a {
   background: var(--accent);
   color: var(--ink);
 }
+
+@keyframes decomp-drift {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 340px 340px;
+  }
+}
+
+@keyframes decomp-breathe {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+

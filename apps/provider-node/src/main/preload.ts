@@ -1,5 +1,8 @@
 /** The only bridge between the isolated renderer and Node/Electron APIs. Keep this surface tiny. */
 import { contextBridge, ipcRenderer } from "electron";
+import type { AuditEntry } from "@decomp/hcs-registry";
+import type { BalanceSnapshot } from "./mirror-reads";
+import type { Settings } from "./settings-store";
 
 type SignResponse = { ok: true; signatureHex: string } | { ok: false; error: string };
 type SignHandler = (hashHex: string) => Promise<SignResponse>;
@@ -25,6 +28,12 @@ const api = {
   setSignHandler: (handler: SignHandler | null): void => {
     signHandler = handler;
   },
+  getSettings: (): Promise<Settings> => ipcRenderer.invoke("decomp:get-settings"),
+  saveSettings: (patch: Partial<Settings>): Promise<Settings> => ipcRenderer.invoke("decomp:save-settings", patch),
+  getBalance: (accountId: string, computeTokenId?: string): Promise<BalanceSnapshot> =>
+    ipcRenderer.invoke("decomp:get-balance", accountId, computeTokenId),
+  getProviderAudits: (auditTopicId: string, accountId: string): Promise<AuditEntry[]> =>
+    ipcRenderer.invoke("decomp:get-provider-audits", auditTopicId, accountId),
 };
 
 contextBridge.exposeInMainWorld("decomp", api);

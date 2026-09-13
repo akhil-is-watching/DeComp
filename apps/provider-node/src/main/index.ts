@@ -10,6 +10,8 @@
 import { app, BrowserWindow, ipcMain } from "electron";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { registerMirrorIpc } from "./ipc/mirror-ipc";
+import { registerSettingsIpc } from "./ipc/settings-ipc";
 
 /** The monorepo root .env — Electron's main process gets none of Bun's automatic .env loading. */
 function loadRootEnv(key: string): string | undefined {
@@ -44,6 +46,8 @@ function createWindow(): void {
 }
 
 ipcMain.handle("decomp:get-privy-app-id", () => loadRootEnv("PRIVY_APP_ID"));
+registerSettingsIpc();
+registerMirrorIpc();
 
 app.whenReady().then(() => {
   createWindow();

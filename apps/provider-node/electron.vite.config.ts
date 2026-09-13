@@ -15,8 +15,10 @@ export default defineConfig({
   renderer: {
     root: resolve(__dirname, "src/renderer"),
     // The embedded-wallet signing math (ported from @decomp/privy-hedera) uses Buffer, which
-    // doesn't exist in a browser/renderer context on its own.
-    plugins: [react(), nodePolyfills({ include: ["buffer"] })],
+    // doesn't exist in a browser/renderer context on its own. `process` is a defensive addition:
+    // some @decomp/* helpers (e.g. hashscanTxUrl's default network param) read process.env when
+    // not given an explicit value — polyfilled so that degrades to undefined instead of throwing.
+    plugins: [react(), nodePolyfills({ include: ["buffer", "process"] })],
     build: {
       rollupOptions: { input: resolve(__dirname, "src/renderer/index.html") },
     },
